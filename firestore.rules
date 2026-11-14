@@ -1,0 +1,297 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: deny all unspecified paths by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidMember(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.memberCode is string &&
+             data.memberCode.size() >= 1 &&
+             data.memberCode.size() <= 40 &&
+             data.name is string &&
+             data.name.size() >= 1 &&
+             data.name.size() <= 120 &&
+             data.mobile is string &&
+             data.mobile.size() <= 30 &&
+             data.memberType is string &&
+             data.memberType in ['WEEKLY', 'DAILY', 'MONTHLY'] &&
+             data.admissionFee is number &&
+             data.admissionFee >= 0 &&
+             data.savingsBalance is number &&
+             data.savingsBalance >= 0 &&
+             data.activeLoanCount is int &&
+             data.activeLoanCount >= 0 &&
+             data.totalLoanDue is number &&
+             data.totalLoanDue >= 0 &&
+             data.registrationDate is int &&
+             data.registrationDate > 0 &&
+             data.isActive is bool &&
+             data.registeredBy is string &&
+             data.registeredBy.size() >= 1 &&
+             data.registeredBy.size() <= 120 &&
+             (!('fatherOrHusbandName' in data) || (data.fatherOrHusbandName is string && data.fatherOrHusbandName.size() <= 120)) &&
+             (!('nid' in data) || (data.nid is string && data.nid.size() <= 50)) &&
+             (!('address' in data) || (data.address is string && data.address.size() <= 300)) &&
+             (!('nomineeName' in data) || (data.nomineeName is string && data.nomineeName.size() <= 120)) &&
+             (!('nomineeRelation' in data) || (data.nomineeRelation is string && data.nomineeRelation.size() <= 60)) &&
+             (!('photoUri' in data) || data.photoUri == null || (data.photoUri is string && data.photoUri.size() <= 500)) &&
+             data.createdAt is timestamp &&
+             data.createdAt <= request.time &&
+             data.updatedAt is timestamp &&
+             data.updatedAt <= request.time;
+    }
+
+    function isValidSavingsTransaction(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.memberCode is string &&
+             data.memberCode.size() >= 1 &&
+             data.memberCode.size() <= 40 &&
+             data.memberName is string &&
+             data.memberName.size() >= 1 &&
+             data.memberName.size() <= 120 &&
+             data.type is string &&
+             data.type in ['DEPOSIT', 'WITHDRAWAL'] &&
+             data.savingsPlan is string &&
+             data.savingsPlan.size() >= 1 &&
+             data.savingsPlan.size() <= 40 &&
+             data.amount is number &&
+             data.amount > 0 &&
+             data.balanceAfter is number &&
+             data.balanceAfter >= 0 &&
+             data.date is int &&
+             data.date > 0 &&
+             data.collectedBy is string &&
+             data.collectedBy.size() >= 1 &&
+             data.collectedBy.size() <= 120 &&
+             data.collectedByRole is string &&
+             data.collectedByRole in ['ADMIN', 'COLLECTOR'] &&
+             data.receiptNumber is string &&
+             data.receiptNumber.size() >= 1 &&
+             data.receiptNumber.size() <= 80 &&
+             (!('note' in data) || (data.note is string && data.note.size() <= 300)) &&
+             data.createdAt is timestamp &&
+             data.createdAt <= request.time &&
+             data.updatedAt is timestamp &&
+             data.updatedAt <= request.time;
+    }
+
+    function isValidLoan(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.loanKey is string &&
+             data.loanKey.size() >= 1 &&
+             data.loanKey.size() <= 80 &&
+             data.memberCode is string &&
+             data.memberCode.size() >= 1 &&
+             data.memberCode.size() <= 40 &&
+             data.memberName is string &&
+             data.memberName.size() >= 1 &&
+             data.memberName.size() <= 120 &&
+             data.principalAmount is number &&
+             data.principalAmount > 0 &&
+             data.interestRate is number &&
+             data.interestRate >= 0 &&
+             data.chargeAmount is number &&
+             data.chargeAmount >= 0 &&
+             data.totalPayable is number &&
+             data.totalPayable >= data.principalAmount &&
+             data.totalPaid is number &&
+             data.totalPaid >= 0 &&
+             data.remainingDue is number &&
+             data.remainingDue >= 0 &&
+             data.totalInstallments is int &&
+             data.totalInstallments > 0 &&
+             data.paidInstallments is int &&
+             data.paidInstallments >= 0 &&
+             data.perInstallmentAmount is number &&
+             data.perInstallmentAmount > 0 &&
+             data.frequency is string &&
+             data.frequency in ['WEEKLY', 'MONTHLY'] &&
+             data.disbursedDate is int &&
+             data.disbursedDate > 0 &&
+             data.disbursedBy is string &&
+             data.disbursedBy.size() >= 1 &&
+             data.disbursedBy.size() <= 120 &&
+             data.status is string &&
+             data.status in ['ACTIVE', 'CLOSED'] &&
+             (!('memberMobile' in data) || (data.memberMobile is string && data.memberMobile.size() <= 30)) &&
+             (!('purpose' in data) || (data.purpose is string && data.purpose.size() <= 300)) &&
+             data.createdAt is timestamp &&
+             data.createdAt <= request.time &&
+             data.updatedAt is timestamp &&
+             data.updatedAt <= request.time;
+    }
+
+    function isValidInstallmentPayment(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.loanKey is string &&
+             data.loanKey.size() >= 1 &&
+             data.loanKey.size() <= 80 &&
+             data.memberCode is string &&
+             data.memberCode.size() >= 1 &&
+             data.memberCode.size() <= 40 &&
+             data.memberName is string &&
+             data.memberName.size() >= 1 &&
+             data.memberName.size() <= 120 &&
+             data.installmentNumber is int &&
+             data.installmentNumber >= 1 &&
+             data.paidAmount is number &&
+             data.paidAmount > 0 &&
+             data.penaltyAmount is number &&
+             data.penaltyAmount >= 0 &&
+             data.paymentDate is int &&
+             data.paymentDate > 0 &&
+             data.remainingAfterPayment is number &&
+             data.remainingAfterPayment >= 0 &&
+             data.collectedBy is string &&
+             data.collectedBy.size() >= 1 &&
+             data.collectedBy.size() <= 120 &&
+             data.receiptNumber is string &&
+             data.receiptNumber.size() >= 1 &&
+             data.receiptNumber.size() <= 80 &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 300)) &&
+             data.createdAt is timestamp &&
+             data.createdAt <= request.time &&
+             data.updatedAt is timestamp &&
+             data.updatedAt <= request.time;
+    }
+
+    match /users/{userId}/members/{memberId} {
+      allow get: if isOwner(userId) && isValidId(memberId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) &&
+                       isValidId(memberId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'memberCode', 'name', 'mobile', 'memberType',
+                         'admissionFee', 'savingsBalance', 'activeLoanCount',
+                         'totalLoanDue', 'registrationDate', 'isActive',
+                         'registeredBy', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'memberCode', 'name', 'mobile', 'fatherOrHusbandName',
+                         'nid', 'address', 'memberType', 'nomineeName', 'nomineeRelation',
+                         'photoUri', 'admissionFee', 'savingsBalance', 'activeLoanCount',
+                         'totalLoanDue', 'registrationDate', 'isActive', 'registeredBy',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidMember(incoming());
+      allow update: if isOwner(userId) &&
+                       isValidId(memberId) &&
+                       isValidMember(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().memberCode == existing().memberCode &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'name', 'mobile', 'fatherOrHusbandName', 'nid', 'address',
+                         'memberType', 'nomineeName', 'nomineeRelation', 'photoUri',
+                         'admissionFee', 'savingsBalance', 'activeLoanCount',
+                         'totalLoanDue', 'isActive', 'updatedAt'
+                       ]);
+      allow delete: if isOwner(userId) && isValidId(memberId);
+    }
+
+    match /users/{userId}/savings_transactions/{txId} {
+      allow get: if isOwner(userId) && isValidId(txId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) &&
+                       isValidId(txId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'memberCode', 'memberName', 'type', 'savingsPlan',
+                         'amount', 'balanceAfter', 'date', 'collectedBy',
+                         'collectedByRole', 'receiptNumber', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'memberCode', 'memberName', 'type', 'savingsPlan',
+                         'amount', 'balanceAfter', 'date', 'note', 'collectedBy',
+                         'collectedByRole', 'receiptNumber', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidSavingsTransaction(incoming());
+      allow update: if false;
+      allow delete: if isOwner(userId) && isValidId(txId);
+    }
+
+    match /users/{userId}/loans/{loanId} {
+      allow get: if isOwner(userId) && isValidId(loanId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) &&
+                       isValidId(loanId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'loanKey', 'memberCode', 'memberName',
+                         'principalAmount', 'interestRate', 'chargeAmount',
+                         'totalPayable', 'totalPaid', 'remainingDue',
+                         'totalInstallments', 'paidInstallments',
+                         'perInstallmentAmount', 'frequency', 'disbursedDate',
+                         'disbursedBy', 'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'loanKey', 'memberCode', 'memberName',
+                         'memberMobile', 'principalAmount', 'interestRate',
+                         'chargeAmount', 'totalPayable', 'totalPaid',
+                         'remainingDue', 'totalInstallments', 'paidInstallments',
+                         'perInstallmentAmount', 'frequency', 'disbursedDate',
+                         'disbursedBy', 'status', 'purpose', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidLoan(incoming());
+      allow update: if isOwner(userId) &&
+                       isValidId(loanId) &&
+                       isValidLoan(incoming()) &&
+                       existing().status != 'CLOSED' &&
+                       incoming().userId == existing().userId &&
+                       incoming().loanKey == existing().loanKey &&
+                       incoming().memberCode == existing().memberCode &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'totalPaid', 'remainingDue', 'paidInstallments', 'status', 'updatedAt'
+                       ]);
+      allow delete: if isOwner(userId) && isValidId(loanId);
+    }
+
+    match /users/{userId}/installment_payments/{paymentId} {
+      allow get: if isOwner(userId) && isValidId(paymentId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) &&
+                       isValidId(paymentId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'loanKey', 'memberCode', 'memberName',
+                         'installmentNumber', 'paidAmount', 'penaltyAmount',
+                         'paymentDate', 'remainingAfterPayment', 'collectedBy',
+                         'receiptNumber', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'loanKey', 'memberCode', 'memberName',
+                         'installmentNumber', 'paidAmount', 'penaltyAmount',
+                         'paymentDate', 'remainingAfterPayment', 'collectedBy',
+                         'receiptNumber', 'notes', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidInstallmentPayment(incoming());
+      allow update: if false;
+      allow delete: if isOwner(userId) && isValidId(paymentId);
+    }
+  }
+}

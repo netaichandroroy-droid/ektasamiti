@@ -1,0 +1,6 @@
+{
+  "name": "Ekta Samiti",
+  "description": "একতা সমিতি - সমবায় ও ক্ষুদ্রঋণ সমিতি পরিচালনা অ্যাপ (পরিচালক: নিতাই চন্দ্র রায়, সাপ্তাহিক সঞ্চয় ও কিস্তি কালেকশন)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,186 @@
+{
+  "entities": {
+    "Member": {
+      "title": "Member",
+      "description": "Ekta Samiti registered member profile and financial balance snapshot",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the Samiti account owner" },
+        "memberCode": { "type": "string", "description": "Unique member code (e.g., ES-1001)" },
+        "name": { "type": "string" },
+        "mobile": { "type": "string" },
+        "fatherOrHusbandName": { "type": "string" },
+        "nid": { "type": "string" },
+        "address": { "type": "string" },
+        "memberType": { "type": "string", "enum": ["WEEKLY", "DAILY", "MONTHLY"] },
+        "nomineeName": { "type": "string" },
+        "nomineeRelation": { "type": "string" },
+        "photoUri": { "type": "string" },
+        "admissionFee": { "type": "number" },
+        "savingsBalance": { "type": "number" },
+        "activeLoanCount": { "type": "integer" },
+        "totalLoanDue": { "type": "number" },
+        "registrationDate": { "type": "integer" },
+        "isActive": { "type": "boolean" },
+        "registeredBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": [
+        "userId",
+        "memberCode",
+        "name",
+        "mobile",
+        "memberType",
+        "admissionFee",
+        "savingsBalance",
+        "activeLoanCount",
+        "totalLoanDue",
+        "registrationDate",
+        "isActive",
+        "registeredBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SavingsTransaction": {
+      "title": "SavingsTransaction",
+      "description": "Savings deposit or withdrawal entry for a member",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "memberCode": { "type": "string" },
+        "memberName": { "type": "string" },
+        "type": { "type": "string", "enum": ["DEPOSIT", "WITHDRAWAL"] },
+        "savingsPlan": { "type": "string" },
+        "amount": { "type": "number" },
+        "balanceAfter": { "type": "number" },
+        "date": { "type": "integer" },
+        "note": { "type": "string" },
+        "collectedBy": { "type": "string" },
+        "collectedByRole": { "type": "string", "enum": ["ADMIN", "COLLECTOR"] },
+        "receiptNumber": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "memberCode",
+        "memberName",
+        "type",
+        "savingsPlan",
+        "amount",
+        "balanceAfter",
+        "date",
+        "collectedBy",
+        "collectedByRole",
+        "receiptNumber",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Loan": {
+      "title": "Loan",
+      "description": "Disbursed member loan with interest, installments, and due status",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "loanKey": { "type": "string" },
+        "memberCode": { "type": "string" },
+        "memberName": { "type": "string" },
+        "memberMobile": { "type": "string" },
+        "principalAmount": { "type": "number" },
+        "interestRate": { "type": "number" },
+        "chargeAmount": { "type": "number" },
+        "totalPayable": { "type": "number" },
+        "totalPaid": { "type": "number" },
+        "remainingDue": { "type": "number" },
+        "totalInstallments": { "type": "integer" },
+        "paidInstallments": { "type": "integer" },
+        "perInstallmentAmount": { "type": "number" },
+        "frequency": { "type": "string", "enum": ["WEEKLY", "MONTHLY"] },
+        "disbursedDate": { "type": "integer" },
+        "disbursedBy": { "type": "string" },
+        "status": { "type": "string", "enum": ["ACTIVE", "CLOSED"] },
+        "purpose": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "loanKey",
+        "memberCode",
+        "memberName",
+        "principalAmount",
+        "interestRate",
+        "chargeAmount",
+        "totalPayable",
+        "totalPaid",
+        "remainingDue",
+        "totalInstallments",
+        "paidInstallments",
+        "perInstallmentAmount",
+        "frequency",
+        "disbursedDate",
+        "disbursedBy",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "InstallmentPayment": {
+      "title": "InstallmentPayment",
+      "description": "Individual loan installment payment receipt",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "loanKey": { "type": "string" },
+        "memberCode": { "type": "string" },
+        "memberName": { "type": "string" },
+        "installmentNumber": { "type": "integer" },
+        "paidAmount": { "type": "number" },
+        "penaltyAmount": { "type": "number" },
+        "paymentDate": { "type": "integer" },
+        "remainingAfterPayment": { "type": "number" },
+        "collectedBy": { "type": "string" },
+        "receiptNumber": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "loanKey",
+        "memberCode",
+        "memberName",
+        "installmentNumber",
+        "paidAmount",
+        "penaltyAmount",
+        "paymentDate",
+        "remainingAfterPayment",
+        "collectedBy",
+        "receiptNumber",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/Member" },
+      "description": "Synchronized Samiti members owned by the authenticated user"
+    },
+    "/users/{userId}/savings_transactions/{txId}": {
+      "schema": { "$ref": "#/entities/SavingsTransaction" },
+      "description": "Synchronized savings deposits and withdrawals owned by the authenticated user"
+    },
+    "/users/{userId}/loans/{loanId}": {
+      "schema": { "$ref": "#/entities/Loan" },
+      "description": "Synchronized member loans owned by the authenticated user"
+    },
+    "/users/{userId}/installment_payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/InstallmentPayment" },
+      "description": "Synchronized loan installment collections owned by the authenticated user"
+    }
+  }
+}
