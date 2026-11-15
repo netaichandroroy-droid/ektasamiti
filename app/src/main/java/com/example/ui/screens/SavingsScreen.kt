@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Savings
@@ -64,13 +65,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.Member
 import com.example.data.model.SavingsTransaction
 import com.example.data.model.User
 import com.example.data.model.UserRole
+import com.example.ui.components.DatePickerField
 import com.example.ui.components.ReceiptDialog
+import com.example.ui.components.SamitiDatePickerDialog
 import com.example.ui.viewmodel.ReceiptData
 import com.example.ui.viewmodel.SamitiViewModel
 import java.text.SimpleDateFormat
@@ -94,6 +99,7 @@ fun SavingsScreen(
     var selectedMemberForAction by remember { mutableStateOf(preselectedMemberForDeposit) }
 
     var selectedTransactionForDelete by remember { mutableStateOf<SavingsTransaction?>(null) }
+    var transactionToEditDate by remember { mutableStateOf<SavingsTransaction?>(null) }
 
     val sdf = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault())
 
@@ -204,11 +210,18 @@ fun SavingsScreen(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.weight(1f).testTag("btn_open_deposit")
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(1.15f).testTag("btn_open_deposit")
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("সাপ্তাহিক সঞ্চয় জমা নিন", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "সঞ্চয় জমা নিন",
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     OutlinedButton(
@@ -217,11 +230,18 @@ fun SavingsScreen(
                             showWithdrawDialog = true
                         },
                         shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.weight(1f).testTag("btn_open_withdraw")
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(0.85f).testTag("btn_open_withdraw")
                     ) {
                         Icon(Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("উত্তোলন", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "উত্তোলন",
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
@@ -288,6 +308,9 @@ fun SavingsScreen(
                                 )
                             )
                         },
+                        onEditDateClick = {
+                            transactionToEditDate = item
+                        },
                         onDeleteClick = {
                             selectedTransactionForDelete = item
                         }
@@ -304,7 +327,7 @@ fun SavingsScreen(
             preselectedMember = selectedMemberForAction,
             currentUser = currentUser,
             onDismiss = { showDepositDialog = false },
-            onSubmit = { member, amount, plan, note ->
+            onSubmit = { member, amount, plan, note, dateMillis ->
                 viewModel.depositSavings(
                     member = member,
                     amount = amount,
@@ -312,6 +335,7 @@ fun SavingsScreen(
                     note = note,
                     collectedBy = currentUser.fullName,
                     role = currentUser.role,
+                    customDate = dateMillis,
                     onComplete = { showDepositDialog = false }
                 )
             }
@@ -325,16 +349,30 @@ fun SavingsScreen(
             preselectedMember = selectedMemberForAction,
             currentUser = currentUser,
             onDismiss = { showWithdrawDialog = false },
-            onSubmit = { member, amount, note ->
+            onSubmit = { member, amount, note, dateMillis ->
                 viewModel.withdrawSavings(
                     member = member,
                     amount = amount,
                     note = note,
                     collectedBy = currentUser.fullName,
                     role = currentUser.role,
+                    customDate = dateMillis,
                     onComplete = { showWithdrawDialog = false }
                 )
             }
+        )
+    }
+
+    // Edit transaction date dialog
+    transactionToEditDate?.let { tx ->
+        SamitiDatePickerDialog(
+            initialDateMillis = tx.date,
+            title = "সঞ্চয় লেনদেনের তারিখ পরিবর্তন করুন",
+            onDateSelected = { newMillis ->
+                viewModel.updateSavingsTransactionDate(tx, newMillis)
+                transactionToEditDate = null
+            },
+            onDismiss = { transactionToEditDate = null }
         )
     }
 
@@ -368,10 +406,11 @@ fun SavingsTransactionCard(
     transaction: SavingsTransaction,
     currentUserRole: UserRole,
     onCardClick: () -> Unit,
+    onEditDateClick: () -> Unit,
     onDeleteClick: () -> Unit
 ) {
     val isDeposit = transaction.type == "DEPOSIT"
-    val sdf = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault())
+    val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
     val cardBg = if (isDeposit) Color(0xFFD1FAE5) else Color(0xFFFEE2E2)
     val cardBorder = if (isDeposit) Color(0xFF16A34A) else Color(0xFFDC2626)
 
@@ -397,7 +436,7 @@ fun SavingsTransactionCard(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFE6E9EE))
+                        .background(Color.White)
                         .border(1.5.dp, cardBorder, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
@@ -449,6 +488,18 @@ fun SavingsTransactionCard(
                     )
                 }
 
+                IconButton(
+                    onClick = onEditDateClick,
+                    modifier = Modifier.testTag("btn_edit_savings_date_${transaction.receiptNumber}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.EditCalendar,
+                        contentDescription = "তারিখ পরিবর্তন করুন",
+                        tint = Color(0xFF1D4ED8),
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+
                 if (currentUserRole == UserRole.ADMIN) {
                     IconButton(onClick = onDeleteClick) {
                         Icon(
@@ -471,20 +522,24 @@ fun SavingsDepositDialog(
     preselectedMember: Member?,
     currentUser: User,
     onDismiss: () -> Unit,
-    onSubmit: (Member, Double, String, String) -> Unit
+    onSubmit: (Member, Double, String, String, Long) -> Unit
 ) {
     var selectedMember by remember { mutableStateOf(preselectedMember ?: members.firstOrNull()) }
     var expanded by remember { mutableStateOf(false) }
     var amountText by remember { mutableStateOf("200") }
     val savingsPlan = "WEEKLY"
     var note by remember { mutableStateOf("") }
+    var depositDateMillis by remember { mutableStateOf(System.currentTimeMillis()) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.fillMaxWidth().padding(4.dp)
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -588,6 +643,15 @@ fun SavingsDepositDialog(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
+                DatePickerField(
+                    label = "জমার তারিখ",
+                    selectedDateMillis = depositDateMillis,
+                    onDateSelected = { depositDateMillis = it },
+                    testTag = "btn_pick_deposit_date"
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
                 // Note
                 OutlinedTextField(
                     value = note,
@@ -608,8 +672,17 @@ fun SavingsDepositDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text("বাতিল")
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(0.8f)
+                    ) {
+                        Text(
+                            text = "বাতিল",
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     Button(
@@ -624,12 +697,18 @@ fun SavingsDepositDialog(
                                 error = "সঠিক পরিমাণ লিখুন"
                                 return@Button
                             }
-                            onSubmit(member, amount, savingsPlan, note)
+                            onSubmit(member, amount, savingsPlan, note, depositDateMillis)
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.weight(1f).testTag("btn_confirm_deposit")
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(1.2f).testTag("btn_confirm_deposit")
                     ) {
-                        Text("জমা নিশ্চিত করুন")
+                        Text(
+                            text = "জমা নিশ্চিত",
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
@@ -644,19 +723,23 @@ fun SavingsWithdrawDialog(
     preselectedMember: Member?,
     currentUser: User,
     onDismiss: () -> Unit,
-    onSubmit: (Member, Double, String) -> Unit
+    onSubmit: (Member, Double, String, Long) -> Unit
 ) {
     var selectedMember by remember { mutableStateOf(preselectedMember ?: members.firstOrNull()) }
     var expanded by remember { mutableStateOf(false) }
     var amountText by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
+    var withdrawDateMillis by remember { mutableStateOf(System.currentTimeMillis()) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.fillMaxWidth().padding(4.dp)
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -735,6 +818,16 @@ fun SavingsWithdrawDialog(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
+                DatePickerField(
+                    label = "উত্তোলনের তারিখ",
+                    selectedDateMillis = withdrawDateMillis,
+                    onDateSelected = { withdrawDateMillis = it },
+                    testTag = "btn_pick_withdraw_date",
+                    accentColor = MaterialTheme.colorScheme.error
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
@@ -754,8 +847,17 @@ fun SavingsWithdrawDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text("বাতিল")
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(0.8f)
+                    ) {
+                        Text(
+                            text = "বাতিল",
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     Button(
@@ -774,12 +876,18 @@ fun SavingsWithdrawDialog(
                                 error = "অপর্যাপ্ত ব্যালেন্স! সঞ্চয় আছে মাত্র ৳${member.savingsBalance.toInt()}"
                                 return@Button
                             }
-                            onSubmit(member, amount, note)
+                            onSubmit(member, amount, note, withdrawDateMillis)
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier.weight(1f).testTag("btn_confirm_withdraw")
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(1.2f).testTag("btn_confirm_withdraw")
                     ) {
-                        Text("উত্তোলন নিশ্চিত")
+                        Text(
+                            text = "উত্তোলন নিশ্চিত",
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }

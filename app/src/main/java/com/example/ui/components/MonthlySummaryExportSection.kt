@@ -12,6 +12,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -66,8 +67,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.InstallmentPayment
 import com.example.data.model.Loan
 import com.example.data.model.Member
@@ -357,6 +360,7 @@ fun MonthlySummaryExportCard(
                         contentColor = Color.White
                     ),
                     shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                     modifier = Modifier
                         .weight(1f)
                         .testTag("btn_share_monthly_text")
@@ -370,7 +374,10 @@ fun MonthlySummaryExportCard(
                     Text(
                         text = "টেক্সট শেয়ার",
                         style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
@@ -381,6 +388,7 @@ fun MonthlySummaryExportCard(
                         contentColor = Color.White
                     ),
                     shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                     modifier = Modifier
                         .weight(1f)
                         .testTag("btn_download_monthly_picture")
@@ -394,7 +402,10 @@ fun MonthlySummaryExportCard(
                     Text(
                         text = "ছবি ডাউনলোড",
                         style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -413,8 +424,9 @@ fun MonthlySummaryExportCard(
                     },
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, Color(0xFF2563EB)),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                     modifier = Modifier
-                        .weight(1f)
+                        .weight(0.9f)
                         .testTag("btn_copy_monthly_text")
                 ) {
                     Icon(
@@ -428,7 +440,10 @@ fun MonthlySummaryExportCard(
                         text = "টেক্সট কপি",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1D4ED8)
+                        color = Color(0xFF1D4ED8),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
@@ -436,8 +451,9 @@ fun MonthlySummaryExportCard(
                     onClick = { showPreviewDialog = true },
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, Color(0xFF0D683B)),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                     modifier = Modifier
-                        .weight(1f)
+                        .weight(1.1f)
                         .testTag("btn_preview_monthly_summary")
                 ) {
                     Icon(
@@ -448,10 +464,13 @@ fun MonthlySummaryExportCard(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "টেক্সট ও ছবি প্রিভিউ",
+                        text = "প্রিভিউ দেখুন",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0D683B)
+                        color = Color(0xFF0D683B),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -548,12 +567,16 @@ fun MonthlySummaryPreviewDialog(
         selectedMonth = cal.get(Calendar.MONTH)
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = 16.dp)
                 .testTag("monthly_summary_preview_dialog")
         ) {
             Column(
@@ -690,13 +713,20 @@ fun MonthlySummaryPreviewDialog(
                         contentColor = Color.White
                     ),
                     shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("btn_dialog_download_picture_only")
                 ) {
                     Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("শুধুমাত্র ছবি ডাউনলোড করুন (PNG)", fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "ছবি ডাউনলোড করুন (PNG)",
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -712,11 +742,19 @@ fun MonthlySummaryPreviewDialog(
                             onFeedbackMessage("টেক্সট ক্লিপবোর্ডে কপি হয়েছে।")
                         },
                         shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("টেক্সট কপি", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "টেক্সট কপি",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     Button(
@@ -735,13 +773,21 @@ fun MonthlySummaryPreviewDialog(
                             contentColor = Color.White
                         ),
                         shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                         modifier = Modifier
                             .weight(1f)
                             .testTag("btn_dialog_share_text")
                     ) {
                         Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("টেক্সট শেয়ার", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "টেক্সট শেয়ার",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }

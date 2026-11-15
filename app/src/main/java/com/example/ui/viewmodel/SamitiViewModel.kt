@@ -9,6 +9,7 @@ import com.example.data.model.SavingsTransaction
 import com.example.data.model.User
 import com.example.data.model.UserRole
 import com.example.data.repository.SamitiRepository
+import com.example.ui.components.SamitiDateUtils
 import com.example.ui.components.SuccessPopupData
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -135,6 +136,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
         initialSavings: Double,
         registeredBy: String,
         role: UserRole,
+        registrationDate: Long = System.currentTimeMillis(),
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -153,6 +155,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                 photoUri = photoUri,
                 admissionFee = admissionFee,
                 savingsBalance = initialSavings,
+                registrationDate = registrationDate,
                 registeredBy = registeredBy
             )
             val memberId = repository.addMember(newMember)
@@ -164,7 +167,8 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                     savingsPlan = memberType,
                     note = "প্রারম্ভিক সঞ্চয় জমা",
                     collectedBy = registeredBy,
-                    role = role
+                    role = role,
+                    customDate = registrationDate
                 )
             }
 
@@ -175,6 +179,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                 details = buildList {
                     add("সদস্যের নাম" to name.trim())
                     add("সদস্য কোড" to memberCode)
+                    add("নিবন্ধনের তারিখ" to SamitiDateUtils.formatDateDisplay(registrationDate))
                     if (mobile.isNotBlank()) add("মোবাইল" to mobile.trim())
                     add("ভর্তি ফি" to "৳${admissionFee.toInt()}")
                     if (initialSavings > 0.0) {
@@ -216,6 +221,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                 amount = amount,
                 balanceOrDue = transaction.balanceAfter,
                 collectedBy = collectedBy,
+                timestamp = transaction.date,
                 notes = note
             )
             _snackbarMessage.value = "৳${amount.toInt()} টাকা সঞ্চয় জমা সম্পন্ন হয়েছে"
@@ -309,6 +315,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                     amount = savingsAmount,
                     balanceOrDue = tx.balanceAfter,
                     collectedBy = collectedBy,
+                    timestamp = tx.date,
                     notes = "$fridayLabel এর সাপ্তাহিক সঞ্চয়"
                 )
             } else if (!didSavings && didLoan && activeLoan != null) {
@@ -317,7 +324,8 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                     amount = loanAmount,
                     penalty = penalty,
                     collectedBy = collectedBy,
-                    notes = "$fridayLabel এর সাপ্তাহিক কিস্তি আদায়"
+                    notes = "$fridayLabel এর সাপ্তাহিক কিস্তি আদায়",
+                    paymentDate = fridayDateMillis
                 )
                 _activeReceipt.value = ReceiptData(
                     title = "ঋণের কিস্তি আদায় রসিদ",
@@ -328,6 +336,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                     amount = loanAmount,
                     balanceOrDue = payment.remainingAfterPayment,
                     collectedBy = collectedBy,
+                    timestamp = payment.paymentDate,
                     notes = "$fridayLabel এর কিস্তি আদায়"
                 )
             } else if (didSavings && didLoan && activeLoan != null) {
@@ -345,7 +354,8 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                     amount = loanAmount,
                     penalty = penalty,
                     collectedBy = collectedBy,
-                    notes = "$fridayLabel এর সাপ্তাহিক কিস্তি আদায়"
+                    notes = "$fridayLabel এর সাপ্তাহিক কিস্তি আদায়",
+                    paymentDate = fridayDateMillis
                 )
                 _activeSuccessPopup.value = SuccessPopupData(
                     title = "সাপ্তাহিক কালেকশন সফল!",
@@ -375,6 +385,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
         note: String,
         collectedBy: String,
         role: UserRole,
+        customDate: Long = System.currentTimeMillis(),
         onComplete: () -> Unit
     ) {
         viewModelScope.launch {
@@ -383,7 +394,8 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                 amount = amount,
                 note = note,
                 collectedBy = collectedBy,
-                role = role
+                role = role,
+                customDate = customDate
             )
             if (transaction != null) {
                 _activeReceipt.value = ReceiptData(
@@ -395,6 +407,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                     amount = amount,
                     balanceOrDue = transaction.balanceAfter,
                     collectedBy = collectedBy,
+                    timestamp = transaction.date,
                     notes = note
                 )
                 _snackbarMessage.value = "৳${amount.toInt()} টাকা উত্তোলন সম্পন্ন হয়েছে"
@@ -420,6 +433,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
         purpose: String,
         disbursedBy: String,
         interestRate: Double = if (principalAmount > 0) kotlin.math.round((chargeAmount / principalAmount) * 10000.0) / 100.0 else 0.0,
+        disbursedDate: Long = System.currentTimeMillis(),
         onComplete: () -> Unit
     ) {
         viewModelScope.launch {
@@ -431,7 +445,8 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                 frequency = frequency,
                 purpose = purpose,
                 disbursedBy = disbursedBy,
-                interestRate = interestRate
+                interestRate = interestRate,
+                disbursedDate = disbursedDate
             )
             val freqLabel = if (frequency == "MONTHLY") "মাসিক" else "সাপ্তাহিক"
             _activeReceipt.value = ReceiptData(
@@ -443,6 +458,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                 amount = principalAmount,
                 balanceOrDue = loan.totalPayable,
                 collectedBy = disbursedBy,
+                timestamp = loan.disbursedDate,
                 notes = "সুদ/চার্জ: ৳${chargeAmount.toInt()} (${com.example.data.model.LoanScheduleCalculator.formatInterestRate(loan.interestRate)}%) | মোট কিস্তি: $totalInstallments টি ($freqLabel)"
             )
             _snackbarMessage.value = "৳${principalAmount.toInt()} টাকা ঋণ বিতরণ সম্পন্ন হয়েছে"
@@ -457,6 +473,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
         penalty: Double,
         collectedBy: String,
         notes: String,
+        paymentDate: Long = System.currentTimeMillis(),
         onComplete: () -> Unit
     ) {
         viewModelScope.launch {
@@ -465,7 +482,8 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                 amount = amount,
                 penalty = penalty,
                 collectedBy = collectedBy,
-                notes = notes
+                notes = notes,
+                paymentDate = paymentDate
             )
             _activeReceipt.value = ReceiptData(
                 title = "ঋণের কিস্তি আদায় রসিদ",
@@ -476,10 +494,40 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                 amount = amount,
                 balanceOrDue = payment.remainingAfterPayment,
                 collectedBy = collectedBy,
+                timestamp = payment.paymentDate,
                 notes = if (penalty > 0) "জরিমানা: ৳$penalty | ${notes}" else notes
             )
             _snackbarMessage.value = "৳${amount.toInt()} টাকা কিস্তি আদায় সম্পন্ন হয়েছে"
             onComplete()
+        }
+    }
+
+    // Date Updates for Existing Records
+    fun updateMemberRegistrationDate(member: Member, newDateMillis: Long) {
+        viewModelScope.launch {
+            repository.updateMemberRegistrationDate(member, newDateMillis)
+            _snackbarMessage.value = "তারিখ সফলভাবে আপডেট করা হয়েছে"
+        }
+    }
+
+    fun updateSavingsTransactionDate(transaction: SavingsTransaction, newDateMillis: Long) {
+        viewModelScope.launch {
+            repository.updateSavingsTransactionDate(transaction, newDateMillis)
+            _snackbarMessage.value = "তারিখ সফলভাবে আপডেট করা হয়েছে"
+        }
+    }
+
+    fun updateLoanDisbursedDate(loan: Loan, newDateMillis: Long) {
+        viewModelScope.launch {
+            repository.updateLoanDisbursedDate(loan, newDateMillis)
+            _snackbarMessage.value = "তারিখ সফলভাবে আপডেট করা হয়েছে"
+        }
+    }
+
+    fun updateInstallmentPaymentDate(payment: InstallmentPayment, newDateMillis: Long) {
+        viewModelScope.launch {
+            repository.updateInstallmentPaymentDate(payment, newDateMillis)
+            _snackbarMessage.value = "তারিখ সফলভাবে আপডেট করা হয়েছে"
         }
     }
 
@@ -575,28 +623,16 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
 
     // Calculations for today's summary
     fun getTodaySavingsTotal(): Double {
-        val cal = Calendar.getInstance()
-        cal.set(Calendar.HOUR_OF_DAY, 0)
-        cal.set(Calendar.MINUTE, 0)
-        cal.set(Calendar.SECOND, 0)
-        cal.set(Calendar.MILLISECOND, 0)
-        val startOfDay = cal.timeInMillis
-
+        val now = System.currentTimeMillis()
         return savingsList.value
-            .filter { it.date >= startOfDay && it.type == "DEPOSIT" }
+            .filter { it.type == "DEPOSIT" && SamitiDateUtils.isSameLocalDay(it.date, now) }
             .sumOf { it.amount }
     }
 
     fun getTodayInstallmentTotal(): Double {
-        val cal = Calendar.getInstance()
-        cal.set(Calendar.HOUR_OF_DAY, 0)
-        cal.set(Calendar.MINUTE, 0)
-        cal.set(Calendar.SECOND, 0)
-        cal.set(Calendar.MILLISECOND, 0)
-        val startOfDay = cal.timeInMillis
-
+        val now = System.currentTimeMillis()
         return installmentsList.value
-            .filter { it.paymentDate >= startOfDay }
+            .filter { SamitiDateUtils.isSameLocalDay(it.paymentDate, now) }
             .sumOf { it.paidAmount }
     }
 

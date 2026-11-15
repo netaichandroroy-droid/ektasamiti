@@ -121,7 +121,7 @@ fun UpcomingLoanRemindersCard(
 
     Card(
         shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFE6E9EE)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.5.dp, Color(0xFFF59E0B)),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
         modifier = modifier

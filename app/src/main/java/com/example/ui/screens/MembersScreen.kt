@@ -32,17 +32,17 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Savings
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SupervisorAccount
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -50,6 +50,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -70,6 +71,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -77,13 +81,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.data.model.Member
 import com.example.data.model.User
 import com.example.data.model.UserRole
+import com.example.notifications.LoanReminderCalculator
+import com.example.notifications.UpcomingWeeklyRepayment
+import com.example.ui.components.DatePickerField
 import com.example.ui.components.PicturePicker
+import com.example.ui.components.SamitiDatePickerDialog
 import com.example.ui.theme.SilverCardAltBg
 import com.example.ui.theme.SilverCardBg
 import com.example.ui.theme.SilverCardBorder
@@ -102,11 +112,33 @@ fun MembersScreen(
     onOpenLoanForMember: (Member) -> Unit = {}
 ) {
     val members by viewModel.members.collectAsState()
-    val searchQuery by viewModel.searchQuery.collectAsState()
+    val activeLoans by viewModel.activeLoans.collectAsState()
     val filterType by viewModel.selectedMemberTypeFilter.collectAsState()
     val passbookMember by viewModel.passbookMember.collectAsState()
+    var showUpcomingDueOnly by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        viewModel.setSearchQuery("")
+    }
+
+    val upcomingDueByMember = remember(activeLoans) {
+        LoanReminderCalculator.findUpcomingMemberRepayments(
+            loans = activeLoans,
+            withinDays = 3,
+            includeOverdue = false
+        )
+    }
+
+    val displayedMembers = remember(members, showUpcomingDueOnly, upcomingDueByMember) {
+        if (showUpcomingDueOnly) {
+            members.filter { upcomingDueByMember.containsKey(it.memberCode) }
+        } else {
+            members
+        }
+    }
 
     var showAddDialog by remember { mutableStateOf(showAddDialogInitially) }
+    var memberToEditDate by remember { mutableStateOf<Member?>(null) }
     LaunchedEffect(showAddDialogInitially) {
         if (showAddDialogInitially) {
             showAddDialog = true
@@ -284,42 +316,58 @@ fun MembersScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { viewModel.setSearchQuery(it) },
-                    label = { Text("নাম, হিসাব নং বা মোবাইল দিয়ে খুঁজুন...") },
-                    leadingIcon = {
-                        Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    },
-                    trailingIcon = {
-                        if (searchQuery.isNotBlank()) {
-                            IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear")
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("search_members_input")
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
                         FilterChip(
-                            selected = filterType == "ALL",
-                            onClick = { viewModel.setMemberFilter("ALL") },
+                            selected = filterType == "ALL" && !showUpcomingDueOnly,
+                            onClick = {
+                                showUpcomingDueOnly = false
+                                viewModel.setMemberFilter("ALL")
+                            },
                             label = { Text("সকল সদস্য (${members.size})") }
                         )
                     }
                     item {
                         FilterChip(
-                            selected = filterType == "WEEKLY",
-                            onClick = { viewModel.setMemberFilter("WEEKLY") },
+                            selected = filterType == "WEEKLY" && !showUpcomingDueOnly,
+                            onClick = {
+                                showUpcomingDueOnly = false
+                                viewModel.setMemberFilter("WEEKLY")
+                            },
                             label = { Text("সাপ্তাহিক সঞ্চয়ী") }
+                        )
+                    }
+                    item {
+                        val upcomingCount = members.count { upcomingDueByMember.containsKey(it.memberCode) }
+                        FilterChip(
+                            selected = showUpcomingDueOnly,
+                            onClick = {
+                                showUpcomingDueOnly = !showUpcomingDueOnly
+                                if (showUpcomingDueOnly) {
+                                    viewModel.setMemberFilter("ALL")
+                                }
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.NotificationsActive,
+                                    contentDescription = null,
+                                    tint = if (showUpcomingDueOnly) Color.White else Color(0xFFB45309),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = "৩ দিনে পরিশোধ ($upcomingCount)",
+                                    fontWeight = if (upcomingCount > 0 || showUpcomingDueOnly) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = if (upcomingCount > 0) Color(0xFFFEF3C7) else Color.Transparent,
+                                labelColor = if (upcomingCount > 0) Color(0xFF92400E) else MaterialTheme.colorScheme.onSurface,
+                                selectedContainerColor = Color(0xFFD97706),
+                                selectedLabelColor = Color.White
+                            ),
+                            modifier = Modifier.testTag("filter_upcoming_due_3d")
                         )
                     }
                 }
@@ -328,7 +376,7 @@ fun MembersScreen(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             // Member list
-            if (members.isEmpty()) {
+            if (displayedMembers.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -337,19 +385,22 @@ fun MembersScreen(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
-                            imageVector = Icons.Default.Person,
+                            imageVector = if (showUpcomingDueOnly) Icons.Default.NotificationsActive else Icons.Default.Person,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.outline,
+                            tint = if (showUpcomingDueOnly) Color(0xFFD97706) else MaterialTheme.colorScheme.outline,
                             modifier = Modifier.size(56.dp)
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = if (searchQuery.isNotBlank()) "কোন সদস্য খুঁজে পাওয়া যায়নি" else "এখনো কোন সদস্য নিবন্ধিত হয়নি",
+                            text = when {
+                                showUpcomingDueOnly -> "আগামী ৩ দিনের মধ্যে কোনো সদস্যের কিস্তি পরিশোধের তারিখ নেই"
+                                else -> "এখনো কোন সদস্য নিবন্ধিত হয়নি"
+                            },
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF374151)
                         )
-                        if (searchQuery.isBlank()) {
+                        if (!showUpcomingDueOnly) {
                             Spacer(modifier = Modifier.height(14.dp))
                             Button(
                                 onClick = { showAddDialog = true },
@@ -370,13 +421,16 @@ fun MembersScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(members, key = { it.id }) { member ->
+                    items(displayedMembers, key = { it.id }) { member ->
+                        val upcomingDue = upcomingDueByMember[member.memberCode]
                         MemberCard(
                             member = member,
                             currentUserRole = currentUser.role,
+                            upcomingDue = upcomingDue,
                             onPassbookClick = { viewModel.openPassbook(member) },
                             onDepositClick = { onOpenDepositForMember(member) },
-                            onLoanClick = { onOpenLoanForMember(member) }
+                            onLoanClick = { onOpenLoanForMember(member) },
+                            onEditDateClick = { memberToEditDate = member }
                         )
                     }
                 }
@@ -392,30 +446,150 @@ fun MembersScreen(
             onDismiss = { showAddDialog = false }
         )
     }
+
+    memberToEditDate?.let { m ->
+        SamitiDatePickerDialog(
+            initialDateMillis = m.registrationDate,
+            title = "সদস্য নিবন্ধনের তারিখ পরিবর্তন করুন",
+            onDateSelected = { newMillis ->
+                viewModel.updateMemberRegistrationDate(m, newMillis)
+                memberToEditDate = null
+            },
+            onDismiss = { memberToEditDate = null }
+        )
+    }
 }
 
 @Composable
 fun MemberCard(
     member: Member,
     currentUserRole: UserRole,
+    upcomingDue: UpcomingWeeklyRepayment? = null,
     onPassbookClick: () -> Unit,
     onDepositClick: () -> Unit,
-    onLoanClick: () -> Unit
+    onLoanClick: () -> Unit,
+    onEditDateClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val sdf = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+    val shortDateSdf = remember { SimpleDateFormat("dd MMM", Locale.getDefault()) }
+
+    val isDueToday = upcomingDue?.daysUntilDue == 0
+    val highlightAccent = when {
+        upcomingDue == null -> null
+        isDueToday -> Color(0xFFDC2626)
+        else -> Color(0xFFD97706)
+    }
+    val highlightBannerBg = when {
+        upcomingDue == null -> Color.Transparent
+        isDueToday -> Color(0xFFFEE2E2)
+        else -> Color(0xFFFEF3C7)
+    }
+    val highlightBannerText = when {
+        upcomingDue == null -> Color.Unspecified
+        isDueToday -> Color(0xFF991B1B)
+        else -> Color(0xFF92400E)
+    }
+    val cardBackgroundBrush = when {
+        upcomingDue == null -> Brush.linearGradient(listOf(SilverCardBg, SilverCardBg))
+        isDueToday -> Brush.linearGradient(listOf(Color(0xFFFFF5F5), Color(0xFFFEE2E2).copy(alpha = 0.58f)))
+        else -> Brush.linearGradient(listOf(Color(0xFFFFFBEB), Color(0xFFFEF3C7).copy(alpha = 0.65f)))
+    }
 
     Card(
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = SilverCardBg),
-        border = BorderStroke(1.2.dp, SilverCardBorder),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        colors = CardDefaults.cardColors(containerColor = if (upcomingDue != null) Color.Transparent else SilverCardBg),
+        border = BorderStroke(
+            width = if (highlightAccent != null) 2.dp else 1.2.dp,
+            color = highlightAccent ?: SilverCardBorder
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (upcomingDue != null) 6.dp else 3.dp),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onPassbookClick() }
             .testTag("member_card_${member.memberCode}")
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(cardBackgroundBrush)
+                .then(
+                    if (highlightAccent != null) {
+                        Modifier.drawBehind {
+                            drawRect(
+                                color = highlightAccent,
+                                topLeft = Offset.Zero,
+                                size = Size(width = 5.dp.toPx(), height = size.height)
+                            )
+                        }
+                    } else {
+                        Modifier
+                    }
+                )
+                .padding(start = if (highlightAccent != null) 16.dp else 14.dp, end = 14.dp, top = 14.dp, bottom = 14.dp)
+        ) {
+            if (upcomingDue != null && highlightAccent != null) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = highlightBannerBg,
+                    border = BorderStroke(1.2.dp, highlightAccent.copy(alpha = 0.65f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                        .testTag("member_due_highlight_${member.memberCode}")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.NotificationsActive,
+                                contentDescription = "ঋণ পরিশোধের তারিখ আসন্ন",
+                                tint = highlightAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Column {
+                                Text(
+                                    text = LoanReminderCalculator.formatDueBadgeText(upcomingDue.daysUntilDue),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = highlightBannerText
+                                )
+                                Text(
+                                    text = "কিস্তি #${upcomingDue.nextInstallmentNumber} • তারিখ: ${shortDateSdf.format(Date(upcomingDue.dueDateMillis))}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = highlightBannerText.copy(alpha = 0.9f)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = highlightAccent
+                        ) {
+                            Text(
+                                text = "৳${upcomingDue.expectedAmount.toInt()}",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -425,8 +599,12 @@ fun MemberCard(
                     modifier = Modifier
                         .size(56.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFE8F8EE))
-                        .border(1.5.dp, Color(0xFF1B7A49).copy(alpha = 0.4f), CircleShape),
+                        .background(if (highlightAccent != null) highlightBannerBg else Color(0xFFE8F8EE))
+                        .border(
+                            width = if (highlightAccent != null) 2.dp else 1.5.dp,
+                            color = highlightAccent ?: Color(0xFF1B7A49).copy(alpha = 0.4f),
+                            shape = CircleShape
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     if (!member.photoUri.isNullOrEmpty() && member.photoUri.startsWith("content://")) {
@@ -440,7 +618,7 @@ fun MemberCard(
                         Icon(
                             imageVector = if (member.photoUri == "avatar_1" || member.photoUri == "avatar_4") Icons.Default.Face else Icons.Default.Person,
                             contentDescription = member.name,
-                            tint = Color(0xFF1B7A49),
+                            tint = highlightAccent ?: Color(0xFF1B7A49),
                             modifier = Modifier.size(32.dp)
                         )
                     }
@@ -458,8 +636,12 @@ fun MemberCard(
                             text = member.name,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.ExtraBold,
-                            color = Color(0xFF111827)
+                            color = Color(0xFF111827),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
+                        Spacer(modifier = Modifier.width(6.dp))
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = Color(0xFFE8F7EE),
@@ -470,6 +652,8 @@ fun MemberCard(
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = Color(0xFF1B7A49),
+                                maxLines = 1,
+                                softWrap = false,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
@@ -489,8 +673,24 @@ fun MemberCard(
                             text = "হিসাব নং: ${member.memberCode} • নিবন্ধন: ${sdf.format(Date(member.registrationDate))}",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF374151)
+                            color = Color(0xFF374151),
+                            modifier = Modifier.weight(1f, fill = false)
                         )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFE0F2FE),
+                            modifier = Modifier
+                                .clickable { onEditDateClick() }
+                                .testTag("btn_edit_member_date_${member.memberCode}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.EditCalendar,
+                                contentDescription = "নিবন্ধনের তারিখ পরিবর্তন করুন",
+                                tint = Color(0xFF1565C0),
+                                modifier = Modifier.padding(4.dp).size(14.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -686,31 +886,52 @@ fun MemberCard(
             ) {
                 OutlinedButton(
                     onClick = onPassbookClick,
-                    modifier = Modifier.weight(1f)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                    modifier = Modifier.weight(1.25f)
                 ) {
                     Icon(Icons.Default.MenuBook, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("বিস্তারিত", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        text = "বিস্তারিত",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
 
                 Button(
                     onClick = onDepositClick,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.weight(1f)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                    modifier = Modifier.weight(0.9f)
                 ) {
                     Icon(Icons.Default.Savings, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("জমা", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        text = "জমা",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
 
                 Button(
                     onClick = onLoanClick,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E6586)),
-                    modifier = Modifier.weight(1f)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                    modifier = Modifier.weight(0.9f)
                 ) {
                     Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("ঋণ", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        text = "ঋণ",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
@@ -734,15 +955,19 @@ fun MemberRegistrationDialog(
     var selectedPhotoUri by remember { mutableStateOf<String?>("avatar_1") }
     var admissionFee by remember { mutableStateOf("100") }
     var initialSavings by remember { mutableStateOf("200") }
+    var registrationDateMillis by remember { mutableStateOf(System.currentTimeMillis()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(4.dp)
+                .padding(horizontal = 16.dp)
                 .testTag("dialog_member_registration")
         ) {
             Column(
@@ -909,6 +1134,15 @@ fun MemberRegistrationDialog(
                     )
                 }
 
+                Spacer(modifier = Modifier.height(10.dp))
+
+                DatePickerField(
+                    label = "সদস্য নিবন্ধনের তারিখ",
+                    selectedDateMillis = registrationDateMillis,
+                    onDateSelected = { registrationDateMillis = it },
+                    testTag = "btn_pick_member_reg_date"
+                )
+
                 if (errorMessage != null) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -927,9 +1161,15 @@ fun MemberRegistrationDialog(
                 ) {
                     OutlinedButton(
                         onClick = onDismiss,
-                        modifier = Modifier.weight(1f)
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(0.8f)
                     ) {
-                        Text("বাতিল")
+                        Text(
+                            text = "বাতিল",
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     Button(
@@ -955,13 +1195,20 @@ fun MemberRegistrationDialog(
                                 initialSavings = savings,
                                 registeredBy = currentUser.fullName,
                                 role = currentUser.role,
+                                registrationDate = registrationDateMillis,
                                 onSuccess = onDismiss
                             )
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.weight(1f).testTag("btn_submit_member")
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(1.2f).testTag("btn_submit_member")
                     ) {
-                        Text("নিবন্ধন করুন")
+                        Text(
+                            text = "নিবন্ধন করুন",
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }

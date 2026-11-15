@@ -2,9 +2,11 @@ package com.example.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -20,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.Paid
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
@@ -34,13 +37,17 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.example.data.model.InstallmentPayment
@@ -56,8 +63,10 @@ fun LoanScheduleDialog(
     loan: Loan,
     payments: List<InstallmentPayment>,
     onDismiss: () -> Unit,
-    onCollectNextClick: () -> Unit
+    onCollectNextClick: () -> Unit,
+    onUpdateDisbursedDate: ((Long) -> Unit)? = null
 ) {
+    var showDatePicker by remember { mutableStateOf(false) }
     val schedule = remember(loan, payments) {
         LoanScheduleCalculator.generateSchedule(loan, payments)
     }
@@ -69,7 +78,7 @@ fun LoanScheduleDialog(
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFE6E9EE)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.5.dp, Color(0xFF1565C0)),
             modifier = Modifier
                 .fillMaxWidth()
@@ -148,6 +157,52 @@ fun LoanScheduleDialog(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color.White,
+                    border = BorderStroke(1.dp, Color(0xFF93C5FD)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(if (onUpdateDisbursedDate != null) Modifier.clickable { showDatePicker = true } else Modifier)
+                        .testTag("btn_schedule_edit_disbursed_date")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "বিতরণের তারিখ: ${dateSdf.format(Date(loan.disbursedDate))}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1E3A8A)
+                        )
+                        if (onUpdateDisbursedDate != null) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.EditCalendar,
+                                    contentDescription = "বিতরণের তারিখ পরিবর্তন",
+                                    tint = Color(0xFF1565C0),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "তারিখ বদলান",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF1565C0),
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(10.dp))
 
                 // Table Column Headers
@@ -186,9 +241,16 @@ fun LoanScheduleDialog(
                 ) {
                     OutlinedButton(
                         onClick = onDismiss,
-                        modifier = Modifier.weight(1f)
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(0.85f)
                     ) {
-                        Text("বন্ধ করুন", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "বন্ধ করুন",
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     if (loan.status == "ACTIVE") {
@@ -198,16 +260,35 @@ fun LoanScheduleDialog(
                                 onCollectNextClick()
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
-                            modifier = Modifier.weight(1.3f).testTag("btn_schedule_collect_next")
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            modifier = Modifier.weight(1.25f).testTag("btn_schedule_collect_next")
                         ) {
                             Icon(Icons.Default.Paid, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("কিস্তি আদায় করুন", fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "কিস্তি আদায় করুন",
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
             }
         }
+    }
+
+    if (showDatePicker && onUpdateDisbursedDate != null) {
+        SamitiDatePickerDialog(
+            initialDateMillis = loan.disbursedDate,
+            title = "ঋণ বিতরণের তারিখ আপডেট করুন",
+            onDateSelected = { newMillis ->
+                onUpdateDisbursedDate(newMillis)
+                showDatePicker = false
+            },
+            onDismiss = { showDatePicker = false }
+        )
     }
 }
 

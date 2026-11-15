@@ -2,10 +2,15 @@ package com.example
 
 import android.content.Intent
 import android.os.Bundle
+import java.util.TimeZone
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,43 +20,38 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Assessment
-import androidx.compose.material.icons.filled.CloudDone
-import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Dashboard
-import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.Savings
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -60,6 +60,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -74,19 +75,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.cloud.CloudAutoSyncManager
-import com.example.data.cloud.CloudSyncState
-import com.example.data.cloud.CloudSyncStatus
 import com.example.data.cloud.GoogleAuthManager
 import com.example.data.cloud.GoogleAuthManager.authStateFlow
 import com.example.data.local.AppDatabase
@@ -106,8 +107,10 @@ import com.example.ui.screens.LoansScreen
 import com.example.ui.screens.MembersScreen
 import com.example.ui.screens.ReportsAndAdminScreen
 import com.example.ui.screens.SavingsScreen
+import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.WeeklyCollectionScreen
 import com.example.ui.theme.EktaSamitiTheme
+import com.example.ui.theme.SilverCardBorder
 import com.example.ui.viewmodel.AuthViewModel
 import com.example.ui.viewmodel.SamitiViewModel
 import com.google.firebase.Firebase
@@ -119,6 +122,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Dhaka"))
         enableEdgeToEdge()
         if (intent?.getBooleanExtra(LoanReminderNotificationHelper.EXTRA_OPEN_LOANS, false) == true) {
             openLoansFromNotificationState.value = true
@@ -143,7 +147,6 @@ class MainActivity : ComponentActivity() {
                 val firebaseUser by Firebase.auth.authStateFlow().collectAsStateWithLifecycle(
                     initialValue = Firebase.auth.currentUser
                 )
-                val cloudSyncState by cloudAutoSyncManager.syncState.collectAsStateWithLifecycle()
 
                 // Silent Google auto-sign-in attempt on startup
                 LaunchedEffect(Unit) {
@@ -200,13 +203,6 @@ class MainActivity : ComponentActivity() {
                             currentUser = currentUser,
                             authViewModel = authViewModel,
                             samitiViewModel = samitiViewModel,
-                            cloudSyncState = cloudSyncState,
-                            onSyncNow = { cloudAutoSyncManager.triggerAutoSyncNow() },
-                            onGoogleSignInSuccess = {
-                                Firebase.auth.currentUser?.let { fbUser ->
-                                    cloudAutoSyncManager.startForUser(fbUser.uid, fbUser.email)
-                                }
-                            },
                             onLogout = { authViewModel.logout(credentialManager) },
                             openLoansFromNotification = openLoansFromNotificationState.value,
                             onConsumedNotificationNavigation = { openLoansFromNotificationState.value = false }
@@ -240,17 +236,18 @@ fun MainAppScaffold(
     currentUser: User,
     authViewModel: AuthViewModel,
     samitiViewModel: SamitiViewModel,
-    cloudSyncState: CloudSyncState = CloudSyncState(),
-    onSyncNow: () -> Unit = {},
-    onGoogleSignInSuccess: () -> Unit = {},
     onLogout: () -> Unit = { authViewModel.logout() },
     openLoansFromNotification: Boolean = false,
     onConsumedNotificationNavigation: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Home, 1: Members, 2: Weekly Collection (+), 3: Savings/Loans, 4: Reports
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Home, 1: Members, 2: Weekly Collection (+), 3: Savings/Loans, 4: Reports, 5: Settings
     val snackbarHostState = remember { SnackbarHostState() }
+
+    BackHandler(enabled = selectedTab != 0) {
+        selectedTab = 0
+    }
 
     val snackbarMsg by samitiViewModel.snackbarMessage.collectAsState()
     val activeReceipt by samitiViewModel.activeReceipt.collectAsState()
@@ -316,165 +313,220 @@ fun MainAppScaffold(
     val navTabs = listOf(
         NavTabItem("হোম", Icons.Filled.Dashboard, Icons.Outlined.Dashboard, "tab_home"),
         NavTabItem("সদস্য", Icons.Filled.Group, Icons.Outlined.Group, "tab_members"),
-        NavTabItem("Weekly Collection", Icons.Filled.Add, Icons.Filled.Add, "tab_weekly_collection", isCenterButton = true),
-        NavTabItem("সঞ্চয় ও ঋণ", Icons.Filled.Savings, Icons.Outlined.Savings, "tab_savings_loans"),
-        NavTabItem("হিসাব", Icons.Filled.Assessment, Icons.Outlined.Assessment, "tab_reports")
+        NavTabItem("Weekly", Icons.Filled.Add, Icons.Filled.Add, "tab_weekly_collection", isCenterButton = true),
+        NavTabItem("সঞ্চয়/ঋণ", Icons.Filled.Savings, Icons.Outlined.Savings, "tab_savings_loans"),
+        NavTabItem("হিসাব", Icons.Filled.Assessment, Icons.Outlined.Assessment, "tab_reports"),
+        NavTabItem("সেটিংস", Icons.Filled.Settings, Icons.Outlined.Settings, "tab_settings")
     )
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Image(
-                            painter = painterResource(id = R.drawable.ic_ekta_samiti_logo_1794238685688),
-                            contentDescription = "Logo",
-                            modifier = Modifier.size(32.dp).clip(CircleShape)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "একতা সমিতি",
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                },
-                actions = {
-                    // Compact live Cloud Auto-Sync status indicator in TopAppBar
-                    IconButton(
-                        onClick = {
-                            if (cloudSyncState.status == CloudSyncStatus.NEEDS_GOOGLE_SIGN_IN) {
-                                selectedTab = 4
-                            } else {
-                                onSyncNow()
-                            }
-                        },
-                        modifier = Modifier.testTag("btn_topbar_sync_status")
-                    ) {
-                        when (cloudSyncState.status) {
-                            CloudSyncStatus.SYNCING -> CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = Color(0xFF1D4ED8),
-                                strokeWidth = 2.dp
-                            )
-                            CloudSyncStatus.SYNCED -> Icon(
-                                imageVector = Icons.Default.CloudDone,
-                                contentDescription = "ক্লাউড সিঙ্ক সম্পন্ন",
-                                tint = Color(0xFF0D683B)
-                            )
-                            CloudSyncStatus.OFFLINE_PENDING -> Icon(
-                                imageVector = Icons.Default.CloudOff,
-                                contentDescription = "অফলাইন অপেক্ষমাণ",
-                                tint = Color(0xFFB45309)
-                            )
-                            else -> Icon(
-                                imageVector = Icons.Default.CloudSync,
-                                contentDescription = "ক্লাউড অটো সিঙ্ক",
-                                tint = Color(0xFF1D4ED8)
-                            )
-                        }
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (currentUser.role == UserRole.ADMIN) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer
-                    ) {
-                        Text(
-                            text = if (currentUser.role == UserRole.ADMIN) "অ্যাডমিন" else "কালেক্টর",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = if (currentUser.role == UserRole.ADMIN) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    IconButton(
-                        onClick = onLogout,
-                        modifier = Modifier.testTag("btn_logout")
-                    ) {
-                        Icon(Icons.Default.ExitToApp, contentDescription = "লগআউট", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        },
-        bottomBar = {
-            NavigationBar(
-                modifier = Modifier
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .testTag("bottom_nav_bar"),
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 8.dp
+            Surface(
+                color = Color(0xFFFFFFFF),
+                shadowElevation = 3.dp
             ) {
-                navTabs.forEachIndexed { index, tab ->
-                    if (tab.isCenterButton) {
-                        // Center Round (+) Button for Weekly Collection
-                        val isSelected = selectedTab == index
-                        NavigationBarItem(
-                            selected = isSelected,
-                            onClick = {
-                                selectedTab = index
-                                openWeeklyCollectionPopupDirectly = true
-                            },
-                            icon = {
+                Column {
+                    CenterAlignedTopAppBar(
+                        title = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(46.dp)
-                                        .shadow(elevation = if (isSelected) 6.dp else 3.dp, shape = CircleShape)
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), CircleShape)
+                                        .padding(2.dp)
+                                ) {
+                                    Image(
+                                        painter = painterResource(id = R.drawable.ic_ekta_samiti_logo_1794238685688),
+                                        contentDescription = "Logo",
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(CircleShape)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "একতা সমিতি",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        },
+                        actions = {
+                            IconButton(
+                                onClick = onLogout,
+                                modifier = Modifier
+                                    .padding(end = 6.dp)
+                                    .testTag("btn_logout")
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFFEE2E2).copy(alpha = 0.7f))
+                                        .border(1.dp, Color(0xFFDC2626).copy(alpha = 0.25f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                                        contentDescription = "লগআউট",
+                                        tint = Color(0xFFB91C1C),
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
+                            }
+                        },
+                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                            containerColor = Color.Transparent
+                        )
+                    )
+                    HorizontalDivider(thickness = 1.dp, color = SilverCardBorder.copy(alpha = 0.7f))
+                }
+            }
+        },
+        bottomBar = {
+            Surface(
+                shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
+                color = Color(0xFFFFFFFF),
+                tonalElevation = 6.dp,
+                shadowElevation = 14.dp,
+                border = BorderStroke(1.dp, SilverCardBorder),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("bottom_nav_bar")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    navTabs.forEachIndexed { index, tab ->
+                        val isSelected = selectedTab == index
+                        if (tab.isCenterButton) {
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 56.dp)
+                                    .minimumInteractiveComponentSize()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable {
+                                        selectedTab = index
+                                        openWeeklyCollectionPopupDirectly = true
+                                    }
+                                    .padding(vertical = 2.dp)
+                                    .testTag("btn_center_weekly_collection"),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .shadow(
+                                            elevation = if (isSelected) 8.dp else 4.dp,
+                                            shape = CircleShape
+                                        )
                                         .clip(CircleShape)
                                         .background(
-                                            if (isSelected) MaterialTheme.colorScheme.primary
-                                            else Color(0xFF0D683B)
-                                        ),
+                                            Brush.linearGradient(
+                                                colors = if (isSelected) {
+                                                    listOf(Color(0xFF07562E), Color(0xFF0A6C3C))
+                                                } else {
+                                                    listOf(Color(0xFF0A6C3C), Color(0xFF18A960))
+                                                }
+                                            )
+                                        )
+                                        .border(1.5.dp, Color.White.copy(alpha = 0.9f), CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Add,
                                         contentDescription = "Weekly Collection",
                                         tint = Color.White,
-                                        modifier = Modifier.size(28.dp)
+                                        modifier = Modifier.size(23.dp)
                                     )
                                 }
-                            },
-                            label = {
-                                Text(
-                                    text = "Weekly Collection",
-                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
-                                    fontSize = 10.sp,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1
-                                )
-                            },
-                            colors = NavigationBarItemDefaults.colors(
-                                indicatorColor = Color.Transparent
-                            ),
-                            modifier = Modifier.testTag("btn_center_weekly_collection")
-                        )
-                    } else {
-                        NavigationBarItem(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            icon = {
-                                Icon(
-                                    imageVector = if (selectedTab == index) tab.selectedIcon else tab.unselectedIcon,
-                                    contentDescription = tab.title
-                                )
-                            },
-                            label = {
+                                Spacer(modifier = Modifier.height(3.dp))
                                 Text(
                                     text = tab.title,
-                                    fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 10.5.sp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFF0A6C3C),
                                     maxLines = 1,
-                                    fontSize = 11.sp
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                            },
-                            modifier = Modifier.testTag(tab.testTag)
-                        )
+                            }
+                        } else {
+                            val pillColor by animateColorAsState(
+                                targetValue = if (isSelected) Color(0xFFD3F5E2) else Color.Transparent,
+                                animationSpec = tween(durationMillis = 200),
+                                label = "nav_pill"
+                            )
+                            val itemColor by animateColorAsState(
+                                targetValue = if (isSelected) Color(0xFF0A6C3C) else Color(0xFF475569),
+                                animationSpec = tween(durationMillis = 200),
+                                label = "nav_tint"
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 56.dp)
+                                    .minimumInteractiveComponentSize()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable { selectedTab = index }
+                                    .padding(vertical = 4.dp)
+                                    .testTag(tab.testTag),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(pillColor)
+                                        .then(
+                                            if (isSelected) {
+                                                Modifier.border(
+                                                    1.dp,
+                                                    Color(0xFF0D683B).copy(alpha = 0.22f),
+                                                    RoundedCornerShape(12.dp)
+                                                )
+                                            } else {
+                                                Modifier
+                                            }
+                                        )
+                                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                        contentDescription = tab.title,
+                                        tint = itemColor,
+                                        modifier = Modifier.size(21.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = tab.title,
+                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                    fontSize = 10.5.sp,
+                                    color = itemColor,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -514,10 +566,7 @@ fun MainAppScaffold(
                         coroutineScope.launch {
                             snackbarHostState.showSnackbar(msg)
                         }
-                    },
-                    cloudSyncState = cloudSyncState,
-                    onSyncNow = onSyncNow,
-                    onGoogleSignInSuccess = onGoogleSignInSuccess
+                    }
                 )
 
                 1 -> MembersScreen(
@@ -559,10 +608,22 @@ fun MainAppScaffold(
                         coroutineScope.launch {
                             snackbarHostState.showSnackbar(msg)
                         }
+                    }
+                )
+
+                5 -> SettingsScreen(
+                    currentUser = currentUser,
+                    viewModel = samitiViewModel,
+                    onLogout = onLogout,
+                    onOpenLoansTab = {
+                        selectedTab = 3
+                        openLoansSubTabDirectly = true
                     },
-                    cloudSyncState = cloudSyncState,
-                    onSyncNow = onSyncNow,
-                    onGoogleSignInSuccess = onGoogleSignInSuccess
+                    onShowMessage = { msg ->
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar(msg)
+                        }
+                    }
                 )
             }
         }

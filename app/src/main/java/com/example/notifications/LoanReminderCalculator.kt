@@ -58,6 +58,58 @@ object LoanReminderCalculator {
             .sortedBy { it.dueDateMillis }
     }
 
+    fun findUpcomingMemberRepayments(
+        loans: List<Loan>,
+        nowMillis: Long = System.currentTimeMillis(),
+        withinDays: Int = 3,
+        includeOverdue: Boolean = false
+    ): Map<String, UpcomingWeeklyRepayment> {
+        val todayStart = startOfDayMillis(nowMillis)
+        val result = linkedMapOf<String, UpcomingWeeklyRepayment>()
+
+        loans
+            .asSequence()
+            .filter {
+                it.status == "ACTIVE" &&
+                    it.paidInstallments < it.totalInstallments &&
+                    it.remainingDue > 0.0 &&
+                    it.memberCode.isNotBlank()
+            }
+            .mapNotNull { loan ->
+                val nextInstallment = loan.paidInstallments + 1
+                val dueDateMillis = LoanScheduleCalculator.computeDueDateMillis(
+                    disbursedDate = loan.disbursedDate,
+                    installmentNumber = nextInstallment,
+                    frequency = loan.frequency
+                )
+                val dueDayStart = startOfDayMillis(dueDateMillis)
+                val diffDays = TimeUnit.MILLISECONDS.toDays(dueDayStart - todayStart).toInt()
+                val inRange = if (includeOverdue) diffDays <= withinDays else diffDays in 0..withinDays
+
+                if (inRange) {
+                    val expected = minOf(loan.perInstallmentAmount, loan.remainingDue)
+                    UpcomingWeeklyRepayment(
+                        loan = loan,
+                        nextInstallmentNumber = nextInstallment,
+                        dueDateMillis = dueDateMillis,
+                        daysUntilDue = diffDays,
+                        expectedAmount = expected
+                    )
+                } else {
+                    null
+                }
+            }
+            .sortedBy { it.dueDateMillis }
+            .forEach { repayment ->
+                val key = repayment.loan.memberCode
+                if (!result.containsKey(key)) {
+                    result[key] = repayment
+                }
+            }
+
+        return result
+    }
+
     fun formatDueBadgeText(daysUntilDue: Int): String {
         return when {
             daysUntilDue < 0 -> "${-daysUntilDue} দিন বকেয়া"

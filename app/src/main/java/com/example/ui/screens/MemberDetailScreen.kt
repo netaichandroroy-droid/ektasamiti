@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocationOn
@@ -91,6 +92,7 @@ import com.example.data.model.MemberHistoryItem
 import com.example.data.model.MemberHistoryType
 import com.example.data.model.UserRole
 import com.example.ui.components.LoanScheduleDialog
+import com.example.ui.components.SamitiDatePickerDialog
 import com.example.ui.theme.SilverCardAltBg
 import com.example.ui.theme.SilverCardBg
 import com.example.ui.theme.SilverCardBorder
@@ -131,6 +133,9 @@ fun MemberDetailScreen(
         )
     }
 
+    val memberSavings = remember(savingsList, liveMember.id) {
+        savingsList.filter { it.memberId == liveMember.id }
+    }
     val memberLoans = remember(loansList, liveMember.id) {
         loansList.filter { it.memberId == liveMember.id }
     }
@@ -141,6 +146,9 @@ fun MemberDetailScreen(
     var selectedTab by remember { mutableIntStateOf(0) } // 0: সকল লেনদেন, 1: সঞ্চয়, 2: কিস্তি পরিশোধ, 3: ঋণ তালিকা
     var selectedLoanForSchedule by remember { mutableStateOf<Loan?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showEditRegDatePicker by remember { mutableStateOf(false) }
+    var historyItemToEditDate by remember { mutableStateOf<MemberHistoryItem?>(null) }
+    var loanToEditDate by remember { mutableStateOf<Loan?>(null) }
 
     val dateTimeSdf = remember { SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()) }
     val dateSdf = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
@@ -284,8 +292,24 @@ fun MemberDetailScreen(
                                         text = "${liveMember.memberCode} • যোগদান: ${dateSdf.format(Date(liveMember.registrationDate))}",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF374151)
+                                        color = Color(0xFF374151),
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFFE0F2FE),
+                                        modifier = Modifier
+                                            .clickable { showEditRegDatePicker = true }
+                                            .testTag("btn_detail_edit_member_reg_date")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.EditCalendar,
+                                            contentDescription = "নিবন্ধনের তারিখ পরিবর্তন করুন",
+                                            tint = Color(0xFF1D4ED8),
+                                            modifier = Modifier.padding(4.dp).size(14.dp)
+                                        )
+                                    }
                                 }
                                 if (liveMember.nid.isNotBlank()) {
                                     Text(
@@ -444,21 +468,35 @@ fun MemberDetailScreen(
                         onClick = { onOpenDepositForMember(liveMember) },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF148549)),
                         shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                         modifier = Modifier.weight(1f).testTag("btn_detail_deposit")
                     ) {
                         Icon(Icons.Default.Savings, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("সঞ্চয় জমা", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "সঞ্চয় জমা",
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                     Button(
                         onClick = { onOpenLoanForMember(liveMember) },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5A45FE)),
                         shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                         modifier = Modifier.weight(1f).testTag("btn_detail_new_loan")
                     ) {
                         Icon(Icons.Default.CreditCard, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("নতুন ঋণ", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "নতুন ঋণ",
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
@@ -541,7 +579,8 @@ fun MemberDetailScreen(
                                     if (matchingLoan != null) {
                                         selectedLoanForSchedule = matchingLoan
                                     }
-                                }
+                                },
+                                onEditDateClick = { historyItemToEditDate = item }
                             )
                         }
                     }
@@ -559,7 +598,8 @@ fun MemberDetailScreen(
                             MemberHistoryRowCard(
                                 item = item,
                                 formattedTime = dateTimeSdf.format(Date(item.timestamp)),
-                                onClick = {}
+                                onClick = {},
+                                onEditDateClick = { historyItemToEditDate = item }
                             )
                         }
                     }
@@ -581,7 +621,8 @@ fun MemberDetailScreen(
                                     if (matchingLoan != null) {
                                         selectedLoanForSchedule = matchingLoan
                                     }
-                                }
+                                },
+                                onEditDateClick = { historyItemToEditDate = item }
                             )
                         }
                     }
@@ -672,15 +713,35 @@ fun MemberDetailScreen(
                                         )
                                     }
                                     Spacer(modifier = Modifier.height(6.dp))
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = Color(0xFF1D4ED8), modifier = Modifier.size(15.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "বিতরণ: ${dateSdf.format(Date(loan.disbursedDate))} • সময়সূচী দেখতে ট্যাপ করুন",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF1D4ED8)
-                                        )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                            Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = Color(0xFF1D4ED8), modifier = Modifier.size(15.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "বিতরণ: ${dateSdf.format(Date(loan.disbursedDate))} • সময়সূচী দেখতে ট্যাপ করুন",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF1D4ED8)
+                                            )
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color(0xFFE0F2FE),
+                                            modifier = Modifier
+                                                .clickable { loanToEditDate = loan }
+                                                .testTag("btn_detail_edit_loan_date_${loan.id}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.EditCalendar,
+                                                contentDescription = "ঋণ বিতরণের তারিখ পরিবর্তন",
+                                                tint = Color(0xFF1D4ED8),
+                                                modifier = Modifier.padding(4.dp).size(15.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -709,14 +770,68 @@ fun MemberDetailScreen(
     }
 
     selectedLoanForSchedule?.let { loan ->
+        val liveLoan = memberLoans.firstOrNull { it.id == loan.id } ?: loan
         LoanScheduleDialog(
-            loan = loan,
-            payments = memberPayments.filter { it.loanId == loan.id },
+            loan = liveLoan,
+            payments = memberPayments.filter { it.loanId == liveLoan.id },
             onDismiss = { selectedLoanForSchedule = null },
             onCollectNextClick = {
                 selectedLoanForSchedule = null
                 onOpenLoanForMember(liveMember)
+            },
+            onUpdateDisbursedDate = { newMillis ->
+                viewModel.updateLoanDisbursedDate(liveLoan, newMillis)
             }
+        )
+    }
+
+    if (showEditRegDatePicker) {
+        SamitiDatePickerDialog(
+            initialDateMillis = liveMember.registrationDate,
+            title = "সদস্য নিবন্ধনের তারিখ পরিবর্তন করুন",
+            onDateSelected = { newMillis ->
+                viewModel.updateMemberRegistrationDate(liveMember, newMillis)
+                showEditRegDatePicker = false
+            },
+            onDismiss = { showEditRegDatePicker = false }
+        )
+    }
+
+    loanToEditDate?.let { loan ->
+        SamitiDatePickerDialog(
+            initialDateMillis = loan.disbursedDate,
+            title = "ঋণ বিতরণের তারিখ পরিবর্তন করুন",
+            onDateSelected = { newMillis ->
+                viewModel.updateLoanDisbursedDate(loan, newMillis)
+                loanToEditDate = null
+            },
+            onDismiss = { loanToEditDate = null }
+        )
+    }
+
+    historyItemToEditDate?.let { item ->
+        SamitiDatePickerDialog(
+            initialDateMillis = item.timestamp,
+            title = "লেনদেনের তারিখ পরিবর্তন করুন",
+            onDateSelected = { newMillis ->
+                when (item.type) {
+                    MemberHistoryType.SAVINGS_DEPOSIT,
+                    MemberHistoryType.SAVINGS_WITHDRAWAL -> {
+                        val tx = memberSavings.firstOrNull { "sav_${it.id}" == item.id }
+                        if (tx != null) viewModel.updateSavingsTransactionDate(tx, newMillis)
+                    }
+                    MemberHistoryType.LOAN_PAYMENT -> {
+                        val pay = memberPayments.firstOrNull { "pay_${it.id}" == item.id }
+                        if (pay != null) viewModel.updateInstallmentPaymentDate(pay, newMillis)
+                    }
+                    MemberHistoryType.LOAN_DISBURSED -> {
+                        val loan = memberLoans.firstOrNull { "loan_${it.id}" == item.id }
+                        if (loan != null) viewModel.updateLoanDisbursedDate(loan, newMillis)
+                    }
+                }
+                historyItemToEditDate = null
+            },
+            onDismiss = { historyItemToEditDate = null }
         )
     }
 
@@ -810,7 +925,8 @@ private fun MemberGradientMetricCard(
 private fun MemberHistoryRowCard(
     item: MemberHistoryItem,
     formattedTime: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onEditDateClick: (() -> Unit)? = null
 ) {
     val (accentColor, badgeBg, icon, amountPrefix) = when (item.type) {
         MemberHistoryType.SAVINGS_DEPOSIT -> listOf(
@@ -920,6 +1036,37 @@ private fun MemberHistoryRowCard(
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF374151)
                 )
+                if (onEditDateClick != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFE0F2FE),
+                        modifier = Modifier
+                            .clickable { onEditDateClick() }
+                            .testTag("btn_edit_history_date_${item.id}")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.EditCalendar,
+                                contentDescription = "তারিখ পরিবর্তন করুন",
+                                tint = Color(0xFF1D4ED8),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = "তারিখ",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1D4ED8),
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+                }
             }
         }
     }

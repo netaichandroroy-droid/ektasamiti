@@ -1,11 +1,14 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,58 +25,52 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AccountBalanceWallet
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CreditCard
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Paid
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Savings
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Summarize
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.data.cloud.CloudSyncState
+import androidx.compose.ui.unit.sp
 import com.example.data.model.User
-import com.example.data.model.UserRole
-import com.example.data.model.WeeklyChartAggregator
-import com.example.ui.components.CloudAutoSyncBanner
-import com.example.ui.components.MonthlySummaryPreviewDialog
 import com.example.ui.components.StatCard
-import com.example.ui.components.UpcomingLoanRemindersCard
-import com.example.ui.components.WeeklyCollectionBarChartCard
 import com.example.ui.viewmodel.SamitiViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
+import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DashboardScreen(
     currentUser: User,
@@ -84,10 +81,7 @@ fun DashboardScreen(
     onOpenNewLoan: () -> Unit,
     onOpenCollectInstallment: () -> Unit,
     onOpenLoansTab: () -> Unit = {},
-    onShowMessage: (String) -> Unit = {},
-    cloudSyncState: CloudSyncState = CloudSyncState(),
-    onSyncNow: () -> Unit = {},
-    onGoogleSignInSuccess: () -> Unit = {}
+    onShowMessage: (String) -> Unit = {}
 ) {
     val members by viewModel.members.collectAsState()
     val savingsList by viewModel.savingsList.collectAsState()
@@ -103,15 +97,28 @@ fun DashboardScreen(
     val totalActiveLoanDue = remember(activeLoans) { activeLoans.sumOf { it.remainingDue } }
     val totalLoansDisbursed = remember(loansList) { loansList.sumOf { it.principalAmount } }
     val totalLoansServiceCharge = remember(loansList) { loansList.sumOf { it.chargeAmount } }
-    val last4WeeksData = remember(savingsList, installmentsList) {
-        WeeklyChartAggregator.computeLast4Weeks(
-            savingsList = savingsList,
-            installmentsList = installmentsList
-        )
+
+    val dhakaTimeZone = remember { TimeZone.getTimeZone("Asia/Dhaka") }
+    val sdf = remember(dhakaTimeZone) {
+        SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).apply { timeZone = dhakaTimeZone }
     }
 
-    val sdf = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault())
-    var showMonthlyExportDialog by remember { mutableStateOf(false) }
+    var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            currentTimeMillis = System.currentTimeMillis()
+            delay(1000L)
+        }
+    }
+    val dhakaDateFormat = remember(dhakaTimeZone) {
+        SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).apply { timeZone = dhakaTimeZone }
+    }
+    val digitalClockTimeFormat = remember(dhakaTimeZone) {
+        SimpleDateFormat("hh:mm:ss", Locale.ENGLISH).apply { timeZone = dhakaTimeZone }
+    }
+    val digitalClockAmPmFormat = remember(dhakaTimeZone) {
+        SimpleDateFormat("a", Locale.ENGLISH).apply { timeZone = dhakaTimeZone }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -120,16 +127,6 @@ fun DashboardScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Cloud Auto-Sync Live Status Banner
-        item {
-            CloudAutoSyncBanner(
-                syncState = cloudSyncState,
-                onSyncNow = onSyncNow,
-                onGoogleSignInSuccess = onGoogleSignInSuccess,
-                onFeedbackMessage = onShowMessage
-            )
-        }
-
         // Welcome Header Banner
         item {
             Card(
@@ -141,10 +138,11 @@ fun DashboardScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
-                            Brush.horizontalGradient(
+                            Brush.linearGradient(
                                 colors = listOf(
-                                    MaterialTheme.colorScheme.primary,
-                                    Color(0xFF1B7A49)
+                                    Color(0xFF07562E),
+                                    Color(0xFF0B733F),
+                                    Color(0xFF148E51)
                                 )
                             )
                         )
@@ -153,10 +151,9 @@ fun DashboardScreen(
                     Column {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
+                            Column(modifier = Modifier.fillMaxWidth()) {
                                 Text(
                                     text = "স্বাগতম,",
                                     style = MaterialTheme.typography.bodyMedium,
@@ -168,19 +165,89 @@ fun DashboardScreen(
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
                                 )
-                            }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = Color.White.copy(alpha = 0.18f),
+                                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                                        modifier = Modifier.align(Alignment.CenterVertically)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CalendarMonth,
+                                                contentDescription = "আজকের তারিখ",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(5.dp))
+                                            Text(
+                                                text = "আজ: ${dhakaDateFormat.format(Date(currentTimeMillis))}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White,
+                                                maxLines = 1,
+                                                softWrap = false
+                                            )
+                                        }
+                                    }
 
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = if (currentUser.role == UserRole.ADMIN) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer
-                            ) {
-                                Text(
-                                    text = if (currentUser.role == UserRole.ADMIN) "অ্যাডমিন (Admin)" else "মাঠকর্মী (Collector)",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (currentUser.role == UserRole.ADMIN) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                )
+                                    // Large Borderless Bold Red Digital Clock (Asia/Dhaka) beside Date
+                                    Row(
+                                        modifier = Modifier
+                                            .align(Alignment.CenterVertically)
+                                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                                            .testTag("dashboard_digital_clock"),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Schedule,
+                                            contentDescription = "ডিজিটাল ঘড়ি (বাংলাদেশ সময়)",
+                                            tint = Color(0xFFFF3B30),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                        Text(
+                                            text = digitalClockTimeFormat.format(Date(currentTimeMillis)),
+                                            style = TextStyle(
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 23.sp,
+                                                fontWeight = FontWeight.Black,
+                                                color = Color(0xFFFF2E2E),
+                                                shadow = Shadow(
+                                                    color = Color.Black.copy(alpha = 0.72f),
+                                                    offset = Offset(1f, 2f),
+                                                    blurRadius = 6f
+                                                )
+                                            ),
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = digitalClockAmPmFormat.format(Date(currentTimeMillis)),
+                                            style = TextStyle(
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Black,
+                                                color = Color(0xFFFF4D4D),
+                                                shadow = Shadow(
+                                                    color = Color.Black.copy(alpha = 0.72f),
+                                                    offset = Offset(1f, 1.5f),
+                                                    blurRadius = 5f
+                                                )
+                                            ),
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -373,95 +440,6 @@ fun DashboardScreen(
             }
         }
 
-        // Last 4 Weeks Bar Chart Visualization
-        item {
-            WeeklyCollectionBarChartCard(buckets = last4WeeksData)
-        }
-
-        // Monthly Summary Export Shortcut Banner (Text Share + Download Picture Only)
-        item {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFE6E9EE)),
-                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF1D4ED8)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.5.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showMonthlyExportDialog = true }
-                    .testTag("card_dashboard_monthly_export")
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFDBEAFE))
-                                .border(1.2.dp, Color(0xFF1D4ED8), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Summarize,
-                                contentDescription = "মাসিক হিসাব এক্সপোর্ট",
-                                tint = Color(0xFF1D4ED8),
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "মাসিক আর্থিক সারসংক্ষেপ এক্সপোর্ট",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color(0xFF0F172A)
-                            )
-                            Text(
-                                text = "মেসেজিং অ্যাপে টেক্সট শেয়ার বা শুধুমাত্র ছবি ডাউনলোড",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium,
-                                color = Color(0xFF1E293B)
-                            )
-                        }
-                    }
-
-                    Button(
-                        onClick = { showMonthlyExportDialog = true },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF1D4ED8),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                        modifier = Modifier.testTag("btn_dashboard_open_monthly_export")
-                    ) {
-                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("এক্সপোর্ট", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-
-        // Director Local Notification & Upcoming Weekly Loan Repayments Reminder Card
-        if (currentUser.role == UserRole.ADMIN) {
-            item {
-                UpcomingLoanRemindersCard(
-                    loansList = loansList,
-                    onOpenLoansTab = { onOpenLoansTab() },
-                    onFeedbackMessage = onShowMessage
-                )
-            }
-        }
-
         // Recent Collections & Activities
         item {
             Row(
@@ -530,18 +508,6 @@ fun DashboardScreen(
             }
         }
     }
-
-    if (showMonthlyExportDialog) {
-        MonthlySummaryPreviewDialog(
-            members = members,
-            savingsList = savingsList,
-            loansList = loansList,
-            installmentsList = installmentsList,
-            generatedBy = currentUser.fullName,
-            onDismiss = { showMonthlyExportDialog = false },
-            onFeedbackMessage = onShowMessage
-        )
-    }
 }
 
 @Composable
@@ -607,12 +573,12 @@ fun ActivityRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     color: Color
 ) {
-    val cardBg = if (color == Color(0xFFB57300) || color == Color(0xFFB45309)) Color(0xFFFEF3C7)
-                 else if (isPositive) Color(0xFFD1FAE5)
-                 else Color(0xFFFEE2E2)
-    val cardBorder = if (color == Color(0xFFB57300) || color == Color(0xFFB45309)) Color(0xFFD97706)
-                     else if (isPositive) Color(0xFF16A34A)
-                     else Color(0xFFDC2626)
+    val cardBg = if (color == Color(0xFFB57300) || color == Color(0xFFB45309)) Color(0xFFFFFBEB)
+                 else if (isPositive) Color(0xFFECFDF5)
+                 else Color(0xFFFEF2F2)
+    val cardBorder = if (color == Color(0xFFB57300) || color == Color(0xFFB45309)) Color(0xFFF59E0B)
+                     else if (isPositive) Color(0xFF10B981)
+                     else Color(0xFFEF4444)
     val boldColor = if (color == Color(0xFFB57300) || color == Color(0xFFB45309)) Color(0xFF92400E)
                     else if (isPositive) Color(0xFF065F46)
                     else Color(0xFF991B1B)
@@ -620,8 +586,8 @@ fun ActivityRow(
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = cardBg),
-        border = androidx.compose.foundation.BorderStroke(1.5.dp, cardBorder),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        border = androidx.compose.foundation.BorderStroke(1.2.dp, cardBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -636,7 +602,7 @@ fun ActivityRow(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFE6E9EE))
+                        .background(Color.White)
                         .border(1.5.dp, cardBorder, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {

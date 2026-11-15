@@ -7,6 +7,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -63,13 +64,17 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.Loan
 import com.example.data.model.Member
 import com.example.data.model.SavingsTransaction
 import com.example.data.model.User
+import com.example.ui.components.DatePickerField
+import com.example.ui.components.SamitiDateUtils
 import com.example.ui.viewmodel.SamitiViewModel
 import java.util.Calendar
 import java.util.Locale
@@ -207,12 +212,12 @@ fun WeeklyCollectionScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFFD5DAE1))
+                .background(MaterialTheme.colorScheme.background)
                 .testTag("weekly_collection_screen")
         ) {
             // Full Page Top Header: Clean, compact, professional
             Surface(
-                color = Color(0xFFE6E9EE),
+                color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 2.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -250,11 +255,18 @@ fun WeeklyCollectionScreen(
                             onClick = { showAddBatchCollectionPopup = true },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B7A49)),
                             shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                             modifier = Modifier.testTag("btn_add_weekly_collection_top")
                         ) {
                             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("+ কালেকশন", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text(
+                                text = "কালেকশন",
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
 
@@ -295,8 +307,34 @@ fun WeeklyCollectionScreen(
 
                         Spacer(modifier = Modifier.width(6.dp))
 
-                        // Year Buttons
+                        // Year Buttons & Today jump chip
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            val isViewingCurrentMonth =
+                                selectedYear == currentCal.get(Calendar.YEAR) &&
+                                    selectedMonthIndex == currentCal.get(Calendar.MONTH)
+                            if (!isViewingCurrentMonth) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFF1B7A49),
+                                    modifier = Modifier
+                                        .clickable {
+                                            selectedYear = currentCal.get(Calendar.YEAR)
+                                            selectedMonthIndex = currentCal.get(Calendar.MONTH)
+                                        }
+                                        .testTag("btn_weekly_jump_today")
+                                ) {
+                                    Text(
+                                        text = "আজ",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                            }
                             IconButton(onClick = { selectedYear-- }, modifier = Modifier.size(26.dp)) {
                                 Icon(Icons.Default.ChevronLeft, contentDescription = "Previous Year", modifier = Modifier.size(18.dp))
                             }
@@ -394,15 +432,15 @@ fun WeeklyCollectionScreen(
             activeLoan = memberActiveLoan,
             currentUser = currentUser,
             onDismiss = { showSingleCellDialog = null },
-            onSubmit = { savingsAmount, loanAmount, penalty, _ ->
+            onSubmit = { savingsAmount, loanAmount, penalty, _, selectedDateMillis, selectedDateLabel ->
                 viewModel.recordFridayCellCollection(
                     member = member,
                     savingsAmount = savingsAmount,
                     loanAmount = loanAmount,
                     activeLoan = memberActiveLoan,
                     penalty = penalty,
-                    fridayDateMillis = friday.dateMillis,
-                    fridayLabel = friday.displayLabel,
+                    fridayDateMillis = selectedDateMillis,
+                    fridayLabel = selectedDateLabel,
                     collectedBy = currentUser.fullName,
                     role = currentUser.role,
                     onComplete = {
@@ -488,7 +526,7 @@ fun FullPageWeeklyCollectionTableView(
 
     Card(
         shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFE6E9EE)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = androidx.compose.foundation.BorderStroke(1.5.dp, borderColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
         modifier = Modifier.fillMaxSize()
@@ -527,7 +565,7 @@ fun FullPageWeeklyCollectionTableView(
                     modifier = Modifier
                         .width(slColWidth + nameColWidth)
                         .fillMaxHeight()
-                        .background(Color(0xFFE6E9EE))
+                        .background(MaterialTheme.colorScheme.surface)
                         .border(1.dp, borderColor)
                 )
 
@@ -563,7 +601,7 @@ fun FullPageWeeklyCollectionTableView(
                     modifier = Modifier
                         .width(slColWidth)
                         .fillMaxHeight()
-                        .background(Color(0xFFDCE1E8))
+                        .background(Color(0xFFEBF3EE))
                         .border(1.dp, borderColor),
                     contentAlignment = Alignment.Center
                 ) {
@@ -575,7 +613,7 @@ fun FullPageWeeklyCollectionTableView(
                     modifier = Modifier
                         .width(nameColWidth)
                         .fillMaxHeight()
-                        .background(Color(0xFFDCE1E8))
+                        .background(Color(0xFFEBF3EE))
                         .border(1.dp, borderColor)
                         .padding(horizontal = 6.dp),
                     contentAlignment = Alignment.Center
@@ -589,7 +627,7 @@ fun FullPageWeeklyCollectionTableView(
                         modifier = Modifier
                             .width(dateColWidth)
                             .fillMaxHeight()
-                            .background(Color(0xFFDCE1E8))
+                            .background(Color(0xFFEBF3EE))
                             .border(1.dp, borderColor),
                         contentAlignment = Alignment.Center
                     ) {
@@ -612,7 +650,7 @@ fun FullPageWeeklyCollectionTableView(
             ) {
                 itemsIndexed(members) { index, member ->
                     val sl = index + 1
-                    val rowBg = if (index % 2 == 0) Color(0xFFE6E9EE) else Color(0xFFDCE1E8)
+                    val rowBg = if (index % 2 == 0) Color(0xFFFFFFFF) else Color(0xFFF4F8F6)
 
                     Row(
                         modifier = Modifier
@@ -774,8 +812,33 @@ fun BatchWeeklyCollectionDialog(
         monthGroups.flatMap { it.fridays }
     }
 
-    var selectedFridayIndex by remember { mutableIntStateOf(0) }
+    val defaultFridayIndex = remember(allFridays) {
+        val now = System.currentTimeMillis()
+        allFridays.indices.minByOrNull { idx -> kotlin.math.abs(allFridays[idx].dateMillis - now) } ?: 0
+    }
+    var selectedFridayIndex by remember(allFridays) { mutableIntStateOf(defaultFridayIndex) }
+    var customDateOverrideMillis by remember { mutableStateOf<Long?>(null) }
     val currentSelectedFriday = allFridays.getOrNull(selectedFridayIndex) ?: allFridays.firstOrNull()
+    val effectiveDateMillis = customDateOverrideMillis ?: currentSelectedFriday?.dateMillis ?: System.currentTimeMillis()
+    val effectiveFridayInfo = remember(currentSelectedFriday, customDateOverrideMillis) {
+        val overrideMillis = customDateOverrideMillis
+        if (overrideMillis != null) {
+            val cal = Calendar.getInstance().apply { timeInMillis = overrideMillis }
+            val day = cal.get(Calendar.DAY_OF_MONTH)
+            val month = cal.get(Calendar.MONTH) + 1
+            val year = cal.get(Calendar.YEAR)
+            FridayDateInfo(
+                weekIndex = 0,
+                dayOfMonth = day,
+                dateMillis = overrideMillis,
+                displayLabel = SamitiDateUtils.formatDateDisplay(overrideMillis),
+                fullDateString = SamitiDateUtils.formatShortDate(overrideMillis),
+                shortDateString = "$day.$month.${year % 100}"
+            )
+        } else {
+            currentSelectedFriday
+        }
+    }
 
     // Member ID -> Amount text map (defaults to 100 as in user's image)
     val amountMap = remember {
@@ -789,15 +852,18 @@ fun BatchWeeklyCollectionDialog(
     val enteredCount = members.count { (amountMap[it.id]?.toDoubleOrNull() ?: 0.0) > 0.0 }
     val totalEnteredAmount = members.sumOf { amountMap[it.id]?.toDoubleOrNull() ?: 0.0 }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFE6E9EE)),
-            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF1B7A49)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF0A6C3C)),
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 10.dp)
+                .padding(horizontal = 14.dp, vertical = 10.dp)
                 .testTag("dialog_batch_weekly_collection")
         ) {
             Column(
@@ -864,12 +930,15 @@ fun BatchWeeklyCollectionDialog(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     allFridays.forEachIndexed { idx, fDate ->
-                        val isSelected = selectedFridayIndex == idx
+                        val isSelected = customDateOverrideMillis == null && selectedFridayIndex == idx
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = if (isSelected) Color(0xFF1976D2) else Color(0xFFF3F4F6),
                             border = androidx.compose.foundation.BorderStroke(1.2.dp, if (isSelected) Color(0xFF0D47A1) else Color(0xFFD1D5DB)),
-                            modifier = Modifier.clickable { selectedFridayIndex = idx }
+                            modifier = Modifier.clickable {
+                                selectedFridayIndex = idx
+                                customDateOverrideMillis = null
+                            }
                         ) {
                             Text(
                                 text = "${fDate.shortDateString} (${fDate.weekIndex}ম শুক্র)",
@@ -881,6 +950,16 @@ fun BatchWeeklyCollectionDialog(
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                DatePickerField(
+                    label = "অথবা কাস্টম তারিখ নির্বাচন করুন",
+                    selectedDateMillis = effectiveDateMillis,
+                    onDateSelected = { pickedMillis -> customDateOverrideMillis = pickedMillis },
+                    testTag = "btn_pick_batch_collection_date",
+                    accentColor = Color(0xFF1B7A49)
+                )
 
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -986,16 +1065,19 @@ fun BatchWeeklyCollectionDialog(
                 HorizontalDivider(color = Color(0xFFE5E7EB))
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Bottom Summary Bar: Total & Save
-                Row(
+                // Bottom Summary Bar & Full-Width Action Buttons
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
                             text = "মোট সদস্য: $enteredCount জন",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF4B5563)
                         )
@@ -1007,31 +1089,52 @@ fun BatchWeeklyCollectionDialog(
                         )
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         OutlinedButton(
                             onClick = onDismiss,
-                            shape = RoundedCornerShape(8.dp)
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            modifier = Modifier.weight(0.8f)
                         ) {
-                            Text("বাতিল", fontWeight = FontWeight.Bold, color = Color(0xFF374151))
+                            Text(
+                                text = "বাতিল",
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF374151),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
 
                         Button(
                             onClick = {
-                                if (currentSelectedFriday != null) {
+                                if (effectiveFridayInfo != null) {
                                     val toSave = members.mapNotNull { m ->
                                         val amt = amountMap[m.id]?.toDoubleOrNull() ?: 0.0
                                         if (amt > 0.0) Pair(m, amt) else null
                                     }
-                                    onSaveCollections(toSave, currentSelectedFriday)
+                                    onSaveCollections(toSave, effectiveFridayInfo)
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B7A49)),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.testTag("btn_save_batch_weekly_collection")
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            modifier = Modifier
+                                .weight(1.2f)
+                                .testTag("btn_save_batch_weekly_collection")
                         ) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("সংরক্ষণ করুন", fontWeight = FontWeight.ExtraBold)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "সংরক্ষণ করুন",
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
@@ -1047,21 +1150,32 @@ fun RecordFridayCollectionDialog(
     activeLoan: Loan?,
     currentUser: User,
     onDismiss: () -> Unit,
-    onSubmit: (Double, Double, Double, String) -> Unit
+    onSubmit: (Double, Double, Double, String, Long, String) -> Unit
 ) {
     var savingsAmountText by remember { mutableStateOf("100") }
     var loanAmountText by remember { mutableStateOf(if (activeLoan != null) "${activeLoan.perInstallmentAmount.toInt()}" else "0") }
     var penaltyText by remember { mutableStateOf("0") }
+    var selectedDateMillis by remember(friday) { mutableStateOf(friday.dateMillis) }
+    val selectedDateLabel = remember(selectedDateMillis, friday) {
+        if (SamitiDateUtils.isSameLocalDay(selectedDateMillis, friday.dateMillis)) {
+            friday.displayLabel
+        } else {
+            SamitiDateUtils.formatDateDisplay(selectedDateMillis)
+        }
+    }
     var note by remember { mutableStateOf("${friday.displayLabel} এর সাপ্তাহিক আদায়") }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFE6E9EE)),
-            border = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0xFF1B7A49)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0xFF0A6C3C)),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 16.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -1081,7 +1195,7 @@ fun RecordFridayCollectionDialog(
                             color = Color(0xFF1B7A49)
                         )
                         Text(
-                            text = "${friday.displayLabel} (${friday.shortDateString})",
+                            text = "$selectedDateLabel (${SamitiDateUtils.formatShortDate(selectedDateMillis)})",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF4B5563)
@@ -1095,6 +1209,18 @@ fun RecordFridayCollectionDialog(
 
                 Spacer(modifier = Modifier.height(10.dp))
                 HorizontalDivider(color = Color(0xFFE5E7EB))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                DatePickerField(
+                    label = "কালেকশনের তারিখ",
+                    selectedDateMillis = selectedDateMillis,
+                    onDateSelected = { newMillis ->
+                        selectedDateMillis = newMillis
+                    },
+                    testTag = "btn_pick_cell_collection_date",
+                    accentColor = Color(0xFF1B7A49)
+                )
+
                 Spacer(modifier = Modifier.height(10.dp))
 
                 // Member Summary Card (Distinct soft green background, bold dark text)
@@ -1188,9 +1314,17 @@ fun RecordFridayCollectionDialog(
                 ) {
                     OutlinedButton(
                         onClick = onDismiss,
-                        modifier = Modifier.weight(1f)
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(0.85f)
                     ) {
-                        Text("বাতিল", fontWeight = FontWeight.Bold, color = Color(0xFF374151))
+                        Text(
+                            text = "বাতিল",
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF374151),
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     Button(
@@ -1198,12 +1332,19 @@ fun RecordFridayCollectionDialog(
                             val savAmt = savingsAmountText.toDoubleOrNull() ?: 0.0
                             val loanAmt = loanAmountText.toDoubleOrNull() ?: 0.0
                             val penalty = penaltyText.toDoubleOrNull() ?: 0.0
-                            onSubmit(savAmt, loanAmt, penalty, note)
+                            onSubmit(savAmt, loanAmt, penalty, note, selectedDateMillis, selectedDateLabel)
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B7A49)),
-                        modifier = Modifier.weight(1f)
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(1.15f)
                     ) {
-                        Text("জমা নিন", fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            text = "জমা নিন",
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }

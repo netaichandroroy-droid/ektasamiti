@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import com.example.data.model.SavingsTransaction
 import kotlinx.coroutines.flow.Flow
 
@@ -21,6 +22,9 @@ interface SavingsDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTransaction(transaction: SavingsTransaction): Long
+
+    @Update
+    suspend fun updateTransaction(transaction: SavingsTransaction)
 
     @Delete
     suspend fun deleteTransaction(transaction: SavingsTransaction)

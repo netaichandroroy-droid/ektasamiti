@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import com.example.data.model.InstallmentPayment
 import kotlinx.coroutines.flow.Flow
 
@@ -25,8 +26,14 @@ interface InstallmentDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPayment(payment: InstallmentPayment): Long
 
+    @Update
+    suspend fun updatePayment(payment: InstallmentPayment)
+
     @Delete
     suspend fun deletePayment(payment: InstallmentPayment)
+
+    @Query("SELECT * FROM installment_payments WHERE loanId = :loanId")
+    suspend fun getPaymentsForLoanList(loanId: Long): List<InstallmentPayment>
 
     @Query("SELECT * FROM installment_payments")
     suspend fun getAllPaymentsList(): List<InstallmentPayment>

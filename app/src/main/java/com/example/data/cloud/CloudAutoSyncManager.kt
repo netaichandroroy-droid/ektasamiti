@@ -266,6 +266,80 @@ class CloudAutoSyncManager(
         }
     }
 
+    fun resyncMemberRegistrationDateAsync(memberCode: String) {
+        if (activeUserId == null && Firebase.auth.currentUser == null) return
+        scope.launch {
+            try {
+                val member = database.memberDao().getMemberByCode(memberCode) ?: return@launch
+                syncSource.deleteMember(memberCode)
+                syncSource.upsertMember(member)
+                markSyncedNow()
+            } catch (e: Exception) {
+                Log.w(TAG, "Cloud member date resync failed: ${e.message}")
+            }
+        }
+    }
+
+    fun resyncSavingsTransactionDateAsync(receiptNumber: String) {
+        if (activeUserId == null && Firebase.auth.currentUser == null) return
+        scope.launch {
+            try {
+                val tx = database.savingsDao().getTransactionByReceipt(receiptNumber) ?: return@launch
+                syncSource.deleteSavingsTransaction(receiptNumber)
+                syncSource.createSavingsTransactionIfMissing(tx)
+                markSyncedNow()
+            } catch (e: Exception) {
+                Log.w(TAG, "Cloud savings date resync failed: ${e.message}")
+            }
+        }
+    }
+
+    fun resyncLoanDateAsync(
+        memberCode: String,
+        oldDisbursedDate: Long,
+        newDisbursedDate: Long,
+        loanId: Long
+    ) {
+        if (activeUserId == null && Firebase.auth.currentUser == null) return
+        scope.launch {
+            try {
+                val loan = database.loanDao().getLoanByMemberCodeAndDate(memberCode, newDisbursedDate)
+                    ?: return@launch
+                val newLoanKey = FirestoreDocIds.loanKey(loan.memberCode, newDisbursedDate)
+                val payments = database.installmentDao().getPaymentsForLoanList(loanId)
+                payments.forEach { p ->
+                    if (p.receiptNumber.isNotBlank()) {
+                        syncSource.deleteInstallmentPayment(p.receiptNumber)
+                    }
+                }
+                syncSource.deleteLoan(memberCode, oldDisbursedDate)
+                syncSource.upsertLoan(loan)
+                payments.forEach { p ->
+                    syncSource.createInstallmentPaymentIfMissing(p, newLoanKey)
+                }
+                markSyncedNow()
+            } catch (e: Exception) {
+                Log.w(TAG, "Cloud loan date resync failed: ${e.message}")
+            }
+        }
+    }
+
+    fun resyncInstallmentDateAsync(receiptNumber: String, loanId: Long) {
+        if (activeUserId == null && Firebase.auth.currentUser == null) return
+        scope.launch {
+            try {
+                val payment = database.installmentDao().getPaymentByReceipt(receiptNumber) ?: return@launch
+                val loan = database.loanDao().getLoanById(loanId) ?: return@launch
+                val loanKey = FirestoreDocIds.loanKey(loan.memberCode, loan.disbursedDate)
+                syncSource.deleteInstallmentPayment(receiptNumber)
+                syncSource.createInstallmentPaymentIfMissing(payment, loanKey)
+                markSyncedNow()
+            } catch (e: Exception) {
+                Log.w(TAG, "Cloud installment date resync failed: ${e.message}")
+            }
+        }
+    }
+
     private suspend fun markSyncedNow() {
         val count = countLocalRecords()
         _syncState.value = _syncState.value.copy(

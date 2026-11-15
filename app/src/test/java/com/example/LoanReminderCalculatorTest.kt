@@ -149,4 +149,68 @@ class LoanReminderCalculatorTest {
         assertEquals("আগামীকাল", LoanReminderCalculator.formatDueBadgeText(1))
         assertEquals("3 দিন বাকি", LoanReminderCalculator.formatDueBadgeText(3))
     }
+
+    @Test
+    fun findUpcomingMemberRepayments_highlightsOnlyLoansWithinNextThreeDays() {
+        val now = startOfDay(2026, Calendar.NOVEMBER, 14)
+        val dayMillis = TimeUnit.DAYS.toMillis(1)
+
+        // Due today (0 days): weekly disbursed 7 days ago -> INCLUDED
+        val dueToday = createLoan(
+            id = 10,
+            memberName = "Karim Mia",
+            disbursedDate = now - 7 * dayMillis
+        )
+        // Due in exactly 3 days: weekly disbursed 4 days ago -> due +3d -> INCLUDED
+        val dueIn3Days = createLoan(
+            id = 11,
+            memberName = "Rahima Begum",
+            disbursedDate = now - 4 * dayMillis
+        )
+        // Due in 4 days: weekly disbursed 3 days ago -> due +4d -> EXCLUDED
+        val dueIn4Days = createLoan(
+            id = 12,
+            memberName = "Sajib Hasan",
+            disbursedDate = now - 3 * dayMillis
+        )
+        // Overdue (-1 day): disbursed 8 days ago -> EXCLUDED when includeOverdue = false
+        val overdue = createLoan(
+            id = 13,
+            memberName = "Jamal Uddin",
+            disbursedDate = now - 8 * dayMillis
+        )
+        // Monthly loan due in 2 days (disbursed Oct 16 -> due Nov 16) -> INCLUDED
+        val monthlyDueIn2Days = createLoan(
+            id = 14,
+            memberName = "Salma Akter",
+            disbursedDate = startOfDay(2026, Calendar.OCTOBER, 16),
+            frequency = "MONTHLY"
+        )
+        // Closed loan -> EXCLUDED
+        val closed = createLoan(
+            id = 15,
+            memberName = "Nadia Islam",
+            disbursedDate = now - 7 * dayMillis,
+            paidInstallments = 10,
+            remainingDue = 0.0,
+            status = "CLOSED"
+        )
+
+        val result = LoanReminderCalculator.findUpcomingMemberRepayments(
+            loans = listOf(dueToday, dueIn3Days, dueIn4Days, overdue, monthlyDueIn2Days, closed),
+            nowMillis = now,
+            withinDays = 3,
+            includeOverdue = false
+        )
+
+        assertEquals(3, result.size)
+        assertTrue(result.containsKey("MEM-0010"))
+        assertEquals(0, result["MEM-0010"]?.daysUntilDue)
+
+        assertTrue(result.containsKey("MEM-0011"))
+        assertEquals(3, result["MEM-0011"]?.daysUntilDue)
+
+        assertTrue(result.containsKey("MEM-0014"))
+        assertEquals(2, result["MEM-0014"]?.daysUntilDue)
+    }
 }

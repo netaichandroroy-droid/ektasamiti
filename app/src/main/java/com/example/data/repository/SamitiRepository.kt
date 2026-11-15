@@ -86,6 +86,11 @@ class SamitiRepository(
         return true
     }
 
+    suspend fun updateMemberRegistrationDate(member: Member, newDateMillis: Long) {
+        memberDao.updateMember(member.copy(registrationDate = newDateMillis))
+        cloudAutoSyncManager?.resyncMemberRegistrationDateAsync(member.memberCode)
+    }
+
     // Savings
     fun getAllSavingsFlow(): Flow<List<SavingsTransaction>> = savingsDao.getAllTransactionsFlow()
 
@@ -128,7 +133,8 @@ class SamitiRepository(
         amount: Double,
         note: String,
         collectedBy: String,
-        role: UserRole
+        role: UserRole,
+        customDate: Long = System.currentTimeMillis()
     ): SavingsTransaction? {
         if (member.savingsBalance < amount) return null
         val newBalance = member.savingsBalance - amount
@@ -141,7 +147,7 @@ class SamitiRepository(
             savingsPlan = member.memberType,
             amount = amount,
             balanceAfter = newBalance,
-            date = System.currentTimeMillis(),
+            date = customDate,
             note = note.ifBlank { "সঞ্চয় উত্তোলন" },
             collectedBy = collectedBy,
             collectedByRole = role.name,
@@ -151,6 +157,13 @@ class SamitiRepository(
         memberDao.updateMember(member.copy(savingsBalance = newBalance))
         cloudAutoSyncManager?.pushSavingsByReceiptAsync(receipt, member.memberCode)
         return transaction.copy(id = id)
+    }
+
+    suspend fun updateSavingsTransactionDate(transaction: SavingsTransaction, newDateMillis: Long) {
+        savingsDao.updateTransaction(transaction.copy(date = newDateMillis))
+        if (transaction.receiptNumber.isNotBlank()) {
+            cloudAutoSyncManager?.resyncSavingsTransactionDateAsync(transaction.receiptNumber)
+        }
     }
 
     // Loans
@@ -168,7 +181,8 @@ class SamitiRepository(
         frequency: String,
         purpose: String,
         disbursedBy: String,
-        interestRate: Double = if (principalAmount > 0) ((chargeAmount / principalAmount) * 10000.0).roundToInt() / 100.0 else 0.0
+        interestRate: Double = if (principalAmount > 0) ((chargeAmount / principalAmount) * 10000.0).roundToInt() / 100.0 else 0.0,
+        disbursedDate: Long = System.currentTimeMillis()
     ): Loan {
         val totalPayable = principalAmount + chargeAmount
         val perInstallment = ((totalPayable / totalInstallments) * 100.0).roundToInt() / 100.0
@@ -187,7 +201,7 @@ class SamitiRepository(
             paidInstallments = 0,
             perInstallmentAmount = perInstallment,
             frequency = frequency,
-            disbursedDate = System.currentTimeMillis(),
+            disbursedDate = disbursedDate,
             disbursedBy = disbursedBy,
             status = "ACTIVE",
             purpose = purpose.ifBlank { "ব্যবসায়িক বিনিয়োগ" }
@@ -203,6 +217,17 @@ class SamitiRepository(
         return loan.copy(id = loanId)
     }
 
+    suspend fun updateLoanDisbursedDate(loan: Loan, newDateMillis: Long) {
+        val oldDate = loan.disbursedDate
+        loanDao.updateLoan(loan.copy(disbursedDate = newDateMillis))
+        cloudAutoSyncManager?.resyncLoanDateAsync(
+            memberCode = loan.memberCode,
+            oldDisbursedDate = oldDate,
+            newDisbursedDate = newDateMillis,
+            loanId = loan.id
+        )
+    }
+
     // Installments
     fun getAllInstallmentsFlow(): Flow<List<InstallmentPayment>> = installmentDao.getAllPaymentsFlow()
 
@@ -214,7 +239,8 @@ class SamitiRepository(
         amount: Double,
         penalty: Double,
         collectedBy: String,
-        notes: String
+        notes: String,
+        paymentDate: Long = System.currentTimeMillis()
     ): InstallmentPayment {
         val newTotalPaid = loan.totalPaid + amount
         val newRemaining = (loan.totalPayable - newTotalPaid).coerceAtLeast(0.0)
@@ -230,7 +256,7 @@ class SamitiRepository(
             installmentNumber = newPaidInstallments,
             paidAmount = amount,
             penaltyAmount = penalty,
-            paymentDate = System.currentTimeMillis(),
+            paymentDate = paymentDate,
             remainingAfterPayment = newRemaining,
             collectedBy = collectedBy,
             receiptNumber = receipt,
@@ -263,6 +289,13 @@ class SamitiRepository(
 
         cloudAutoSyncManager?.pushLoanAndInstallmentAsync(loan.memberCode, loan.disbursedDate, receipt)
         return payment.copy(id = paymentId)
+    }
+
+    suspend fun updateInstallmentPaymentDate(payment: InstallmentPayment, newDateMillis: Long) {
+        installmentDao.updatePayment(payment.copy(paymentDate = newDateMillis))
+        if (payment.receiptNumber.isNotBlank()) {
+            cloudAutoSyncManager?.resyncInstallmentDateAsync(payment.receiptNumber, payment.loanId)
+        }
     }
 
     // Admin Deletions & Security

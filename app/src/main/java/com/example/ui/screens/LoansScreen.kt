@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.Paid
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Percent
@@ -77,16 +78,20 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.InstallmentPayment
 import com.example.data.model.Loan
 import com.example.data.model.LoanScheduleCalculator
 import com.example.data.model.Member
 import com.example.data.model.User
 import com.example.data.model.UserRole
+import com.example.ui.components.DatePickerField
 import com.example.ui.components.LoanScheduleDialog
 import com.example.ui.components.ReceiptDialog
+import com.example.ui.components.SamitiDatePickerDialog
 import com.example.ui.viewmodel.ReceiptData
 import com.example.ui.viewmodel.SamitiViewModel
 import java.text.SimpleDateFormat
@@ -113,6 +118,8 @@ fun LoansScreen(
     var selectedLoanForCollection by remember { mutableStateOf<Loan?>(null) }
     var selectedLoanForSchedule by remember { mutableStateOf<Loan?>(null) }
     var selectedLoanForDelete by remember { mutableStateOf<Loan?>(null) }
+    var loanToEditDate by remember { mutableStateOf<Loan?>(null) }
+    var paymentToEditDate by remember { mutableStateOf<InstallmentPayment?>(null) }
     var loanSearchQuery by remember { mutableStateOf("") }
 
     LaunchedEffect(showNewLoanInitially, preselectedMemberForLoan) {
@@ -269,22 +276,36 @@ fun LoansScreen(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB57300)),
                         shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                         modifier = Modifier.weight(1f).testTag("btn_open_collect_installment")
                     ) {
                         Icon(Icons.Default.Paid, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("কিস্তি আদায় করুন", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "কিস্তি আদায়",
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     Button(
                         onClick = { showNewLoanDialog = true },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                         modifier = Modifier.weight(1f).testTag("btn_open_disburse_loan")
                     ) {
                         Icon(Icons.Default.CreditCard, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("নতুন ঋণ বিতরণ", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "নতুন ঋণ বিতরণ",
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
@@ -365,6 +386,9 @@ fun LoansScreen(
                                         onCollectClick = {
                                             selectedLoanForCollection = loan
                                             showCollectDialog = true
+                                        },
+                                        onEditDateClick = {
+                                            loanToEditDate = loan
                                         },
                                         onDeleteClick = {
                                             selectedLoanForDelete = loan
@@ -465,6 +489,9 @@ fun LoansScreen(
                                                 notes = payment.notes
                                             )
                                         )
+                                    },
+                                    onEditDateClick = {
+                                        paymentToEditDate = payment
                                     }
                                 )
                             }
@@ -519,6 +546,9 @@ fun LoansScreen(
                                                 showCollectDialog = true
                                             }
                                         },
+                                        onEditDateClick = {
+                                            loanToEditDate = loan
+                                        },
                                         onDeleteClick = {
                                             selectedLoanForDelete = loan
                                         }
@@ -534,16 +564,20 @@ fun LoansScreen(
 
     // Full Loan Repayment Schedule Dialog
     selectedLoanForSchedule?.let { loan ->
-        val loanPayments = remember(installmentsList, loan.id) {
-            installmentsList.filter { it.loanId == loan.id }
+        val liveLoan = loansList.firstOrNull { it.id == loan.id } ?: loan
+        val loanPayments = remember(installmentsList, liveLoan.id) {
+            installmentsList.filter { it.loanId == liveLoan.id }
         }
         LoanScheduleDialog(
-            loan = loan,
+            loan = liveLoan,
             payments = loanPayments,
             onDismiss = { selectedLoanForSchedule = null },
             onCollectNextClick = {
-                selectedLoanForCollection = loan
+                selectedLoanForCollection = liveLoan
                 showCollectDialog = true
+            },
+            onUpdateDisbursedDate = { newMillis ->
+                viewModel.updateLoanDisbursedDate(liveLoan, newMillis)
             }
         )
     }
@@ -555,7 +589,7 @@ fun LoansScreen(
             preselectedMember = preselectedMemberForLoan,
             currentUser = currentUser,
             onDismiss = { showNewLoanDialog = false },
-            onSubmit = { member, principal, rate, charge, installments, freq, purpose ->
+            onSubmit = { member, principal, rate, charge, installments, freq, purpose, disbursedDateMillis ->
                 viewModel.disburseLoan(
                     member = member,
                     principalAmount = principal,
@@ -565,6 +599,7 @@ fun LoansScreen(
                     purpose = purpose,
                     disbursedBy = currentUser.fullName,
                     interestRate = rate,
+                    disbursedDate = disbursedDateMillis,
                     onComplete = { showNewLoanDialog = false }
                 )
             }
@@ -578,16 +613,41 @@ fun LoansScreen(
             preselectedLoan = selectedLoanForCollection,
             currentUser = currentUser,
             onDismiss = { showCollectDialog = false },
-            onSubmit = { loan, amount, penalty, notes ->
+            onSubmit = { loan, amount, penalty, notes, paymentDateMillis ->
                 viewModel.collectInstallment(
                     loan = loan,
                     amount = amount,
                     penalty = penalty,
                     collectedBy = currentUser.fullName,
                     notes = notes,
+                    paymentDate = paymentDateMillis,
                     onComplete = { showCollectDialog = false }
                 )
             }
+        )
+    }
+
+    loanToEditDate?.let { loan ->
+        SamitiDatePickerDialog(
+            initialDateMillis = loan.disbursedDate,
+            title = "ঋণ বিতরণের তারিখ পরিবর্তন করুন",
+            onDateSelected = { newMillis ->
+                viewModel.updateLoanDisbursedDate(loan, newMillis)
+                loanToEditDate = null
+            },
+            onDismiss = { loanToEditDate = null }
+        )
+    }
+
+    paymentToEditDate?.let { payment ->
+        SamitiDatePickerDialog(
+            initialDateMillis = payment.paymentDate,
+            title = "কিস্তি আদায়ের তারিখ পরিবর্তন করুন",
+            onDateSelected = { newMillis ->
+                viewModel.updateInstallmentPaymentDate(payment, newMillis)
+                paymentToEditDate = null
+            },
+            onDismiss = { paymentToEditDate = null }
         )
     }
 
@@ -622,6 +682,7 @@ fun LoanItemCard(
     currentUserRole: UserRole,
     onViewScheduleClick: () -> Unit,
     onCollectClick: () -> Unit,
+    onEditDateClick: () -> Unit = {},
     onDeleteClick: () -> Unit
 ) {
     val progress = if (loan.totalPayable > 0) (loan.totalPaid / loan.totalPayable).toFloat() else 0f
@@ -639,9 +700,9 @@ fun LoanItemCard(
 
     Card(
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFE6E9EE)),
-        border = BorderStroke(1.2.dp, if (isClosed) Color(0xFF90CAF9) else Color(0xFFFCA5A5)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.5.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.2.dp, if (isClosed) Color(0xFF93C5FD) else Color(0xFFFCA5A5)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier.fillMaxWidth().testTag("loan_card_${loan.id}")
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -663,12 +724,30 @@ fun LoanItemCard(
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF374151)
                     )
-                    Text(
-                        text = "বিতরণ: ${dateSdf.format(Date(loan.disbursedDate))} • $freqText • সুদ: $rateText%",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF1E40AF)
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "বিতরণ: ${dateSdf.format(Date(loan.disbursedDate))} • $freqText • সুদ: $rateText%",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF1E40AF),
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFDBEAFE),
+                            modifier = Modifier
+                                .clickable { onEditDateClick() }
+                                .testTag("btn_edit_loan_date_${loan.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.EditCalendar,
+                                contentDescription = "বিতরণের তারিখ পরিবর্তন করুন",
+                                tint = Color(0xFF1E40AF),
+                                modifier = Modifier.padding(4.dp).size(14.dp)
+                            )
+                        }
+                    }
                 }
 
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -704,64 +783,74 @@ fun LoanItemCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Loan breakdown stats (মূল ঋণ, সুদ %, প্রদেয়, মোট কিস্তি, বকেয়া)
-            Row(
+            // Loan breakdown stats (মূল ঋণ, সুদ %, প্রদেয়, আদায়, বকেয়া) - 2 balanced rows for 15sp readability
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFF1F5F9),
-                    border = BorderStroke(1.dp, Color(0xFF94A3B8))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Column(modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("মূল ঋণ", style = MaterialTheme.typography.labelSmall, color = Color(0xFF334155), fontWeight = FontWeight.Bold, maxLines = 1)
-                        Text("৳${loan.principalAmount.toInt()}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, color = Color(0xFF0F172A))
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFF1F5F9),
+                        border = BorderStroke(1.dp, Color(0xFF94A3B8))
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("মূল ঋণ", style = MaterialTheme.typography.labelSmall, color = Color(0xFF334155), fontWeight = FontWeight.Bold, maxLines = 1)
+                            Text("৳${loan.principalAmount.toInt()}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, color = Color(0xFF0F172A))
+                        }
+                    }
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFFDF2F8),
+                        border = BorderStroke(1.dp, Color(0xFFF472B6))
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("সুদ ($rateText%)", style = MaterialTheme.typography.labelSmall, color = Color(0xFF831843), fontWeight = FontWeight.Bold, maxLines = 1)
+                            Text("+৳${loan.chargeAmount.toInt()}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, color = Color(0xFFBE185D))
+                        }
+                    }
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFEFF6FF),
+                        border = BorderStroke(1.dp, Color(0xFF60A5FA))
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("প্রদেয়", style = MaterialTheme.typography.labelSmall, color = Color(0xFF1E40AF), fontWeight = FontWeight.Bold, maxLines = 1)
+                            Text("৳${loan.totalPayable.toInt()}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, color = Color(0xFF1D4ED8))
+                        }
                     }
                 }
-                Surface(
-                    modifier = Modifier.weight(0.95f),
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFFDF2F8),
-                    border = BorderStroke(1.dp, Color(0xFFF472B6))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Column(modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("সুদ ($rateText%)", style = MaterialTheme.typography.labelSmall, color = Color(0xFF831843), fontWeight = FontWeight.Bold, maxLines = 1)
-                        Text("+৳${loan.chargeAmount.toInt()}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, color = Color(0xFFBE185D))
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFFEF3C7),
+                        border = BorderStroke(1.2.dp, Color(0xFFF59E0B))
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("আদায়", style = MaterialTheme.typography.labelSmall, color = Color(0xFF92400E), fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                            Text("৳${loan.totalPaid.toInt()}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, color = Color(0xFFB45309))
+                        }
                     }
-                }
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFEFF6FF),
-                    border = BorderStroke(1.dp, Color(0xFF60A5FA))
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("প্রদেয়", style = MaterialTheme.typography.labelSmall, color = Color(0xFF1E40AF), fontWeight = FontWeight.Bold, maxLines = 1)
-                        Text("৳${loan.totalPayable.toInt()}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, color = Color(0xFF1D4ED8))
-                    }
-                }
-                Surface(
-                    modifier = Modifier.weight(1.1f),
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFFEF3C7),
-                    border = BorderStroke(1.2.dp, Color(0xFFF59E0B))
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("আদায়", style = MaterialTheme.typography.labelSmall, color = Color(0xFF92400E), fontWeight = FontWeight.ExtraBold, maxLines = 1)
-                        Text("৳${loan.totalPaid.toInt()}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, color = Color(0xFFB45309))
-                    }
-                }
-                Surface(
-                    modifier = Modifier.weight(1.05f),
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFFEE2E2),
-                    border = BorderStroke(1.2.dp, Color(0xFFEF4444))
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("বকেয়া", style = MaterialTheme.typography.labelSmall, color = Color(0xFF991B1B), fontWeight = FontWeight.ExtraBold, maxLines = 1)
-                        Text("৳${loan.remainingDue.toInt()}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, color = Color(0xFFDC2626))
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFFEE2E2),
+                        border = BorderStroke(1.2.dp, Color(0xFFEF4444))
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("বকেয়া", style = MaterialTheme.typography.labelSmall, color = Color(0xFF991B1B), fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                            Text("৳${loan.remainingDue.toInt()}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, color = Color(0xFFDC2626))
+                        }
                     }
                 }
             }
@@ -941,11 +1030,18 @@ fun LoanItemCard(
                     Button(
                         onClick = onCollectClick,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Icon(Icons.Default.Paid, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("কিস্তি দিন (লাল)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "কিস্তি দিন",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 } else {
                     Surface(
@@ -982,9 +1078,10 @@ fun LoanItemCard(
 fun InstallmentPaymentCard(
     payment: InstallmentPayment,
     currentUserRole: UserRole,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onEditDateClick: () -> Unit = {}
 ) {
-    val sdf = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault())
+    val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
 
     Card(
         shape = RoundedCornerShape(14.dp),
@@ -1005,7 +1102,7 @@ fun InstallmentPaymentCard(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFE6E9EE)),
+                        .background(Color.White),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -1040,19 +1137,32 @@ fun InstallmentPaymentCard(
                 }
             }
 
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = "৳ ${payment.paidAmount.toInt()}",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color(0xFF92400E)
-                )
-                Text(
-                    text = "অবশিষ্ট: ৳${payment.remainingAfterPayment.toInt()}",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color(0xFF78350F)
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "৳ ${payment.paidAmount.toInt()}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFF92400E)
+                    )
+                    Text(
+                        text = "অবশিষ্ট: ৳${payment.remainingAfterPayment.toInt()}",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFF78350F)
+                    )
+                }
+                IconButton(
+                    onClick = onEditDateClick,
+                    modifier = Modifier.testTag("btn_edit_payment_date_${payment.receiptNumber}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.EditCalendar,
+                        contentDescription = "কিস্তি আদায়ের তারিখ পরিবর্তন করুন",
+                        tint = Color(0xFF1D4ED8),
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
             }
         }
     }
@@ -1065,7 +1175,7 @@ fun NewLoanDisbursalDialog(
     preselectedMember: Member?,
     currentUser: User,
     onDismiss: () -> Unit,
-    onSubmit: (Member, Double, Double, Double, Int, String, String) -> Unit
+    onSubmit: (Member, Double, Double, Double, Int, String, String, Long) -> Unit
 ) {
     var selectedMember by remember { mutableStateOf(preselectedMember ?: members.firstOrNull()) }
     var expanded by remember { mutableStateOf(false) }
@@ -1076,6 +1186,7 @@ fun NewLoanDisbursalDialog(
     var installmentsText by remember { mutableStateOf("20") }
     var frequency by remember { mutableStateOf("WEEKLY") } // "WEEKLY" or "MONTHLY"
     var purpose by remember { mutableStateOf("ব্যবসা সম্প্রসারণ") }
+    var disbursedDateMillis by remember { mutableStateOf(System.currentTimeMillis()) }
     var error by remember { mutableStateOf<String?>(null) }
 
     val principal = principalText.toDoubleOrNull() ?: 0.0
@@ -1084,20 +1195,22 @@ fun NewLoanDisbursalDialog(
     val totalPayable = principal + charge
     val totalInstallments = installmentsText.toIntOrNull() ?: 1
     val perInstallment = if (totalInstallments > 0) ((totalPayable / totalInstallments) * 100.0).roundToInt() / 100.0 else 0.0
-    val nowMillis = remember { System.currentTimeMillis() }
     val dateSdf = remember { SimpleDateFormat("dd MMM yy", Locale.getDefault()) }
-    val firstDueDate = remember(nowMillis, frequency) {
-        LoanScheduleCalculator.computeDueDateMillis(nowMillis, 1, frequency)
+    val firstDueDate = remember(disbursedDateMillis, frequency) {
+        LoanScheduleCalculator.computeDueDateMillis(disbursedDateMillis, 1, frequency)
     }
-    val finalDueDate = remember(nowMillis, frequency, totalInstallments) {
-        LoanScheduleCalculator.computeDueDateMillis(nowMillis, totalInstallments.coerceAtLeast(1), frequency)
+    val finalDueDate = remember(disbursedDateMillis, frequency, totalInstallments) {
+        LoanScheduleCalculator.computeDueDateMillis(disbursedDateMillis, totalInstallments.coerceAtLeast(1), frequency)
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.fillMaxWidth().padding(4.dp)
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -1295,6 +1408,15 @@ fun NewLoanDisbursalDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                Spacer(modifier = Modifier.height(10.dp))
+
+                DatePickerField(
+                    label = "ঋণ বিতরণের তারিখ",
+                    selectedDateMillis = disbursedDateMillis,
+                    onDateSelected = { disbursedDateMillis = it },
+                    testTag = "btn_pick_loan_disburse_date"
+                )
+
                 Spacer(modifier = Modifier.height(12.dp))
 
                 // Calculation & Expected Repayment Schedule Preview Card
@@ -1341,8 +1463,17 @@ fun NewLoanDisbursalDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text("বাতিল")
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(0.8f)
+                    ) {
+                        Text(
+                            text = "বাতিল",
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     Button(
@@ -1360,12 +1491,18 @@ fun NewLoanDisbursalDialog(
                                 error = "কিস্তির সংখ্যা দিন"
                                 return@Button
                             }
-                            onSubmit(member, principal, interestRate, charge, totalInstallments, frequency, purpose)
+                            onSubmit(member, principal, interestRate, charge, totalInstallments, frequency, purpose, disbursedDateMillis)
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.weight(1f).testTag("btn_confirm_disburse_loan")
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(1.2f).testTag("btn_confirm_disburse_loan")
                     ) {
-                        Text("ঋণ প্রদান নিশ্চিত")
+                        Text(
+                            text = "ঋণ নিশ্চিত করুন",
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
@@ -1380,7 +1517,7 @@ fun CollectInstallmentDialog(
     preselectedLoan: Loan?,
     currentUser: User,
     onDismiss: () -> Unit,
-    onSubmit: (Loan, Double, Double, String) -> Unit
+    onSubmit: (Loan, Double, Double, String, Long) -> Unit
 ) {
     var selectedLoan by remember { mutableStateOf(preselectedLoan ?: activeLoans.firstOrNull()) }
     var expanded by remember { mutableStateOf(false) }
@@ -1390,13 +1527,17 @@ fun CollectInstallmentDialog(
     }
     var penaltyText by remember { mutableStateOf("0") }
     var notes by remember { mutableStateOf("") }
+    var paymentDateMillis by remember { mutableStateOf(System.currentTimeMillis()) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.fillMaxWidth().padding(4.dp)
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -1508,6 +1649,16 @@ fun CollectInstallmentDialog(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
+                DatePickerField(
+                    label = "কিস্তি আদায়ের তারিখ",
+                    selectedDateMillis = paymentDateMillis,
+                    onDateSelected = { paymentDateMillis = it },
+                    testTag = "btn_pick_installment_date",
+                    accentColor = Color(0xFFB57300)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
                 // Notes
                 OutlinedTextField(
                     value = notes,
@@ -1528,8 +1679,17 @@ fun CollectInstallmentDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text("বাতিল")
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(0.8f)
+                    ) {
+                        Text(
+                            text = "বাতিল",
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     Button(
@@ -1545,12 +1705,18 @@ fun CollectInstallmentDialog(
                                 error = "সঠিক আদায়ের পরিমাণ দিন"
                                 return@Button
                             }
-                            onSubmit(loan, amount, penalty, notes)
+                            onSubmit(loan, amount, penalty, notes, paymentDateMillis)
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB57300)),
-                        modifier = Modifier.weight(1f).testTag("btn_confirm_collect_installment")
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(1.2f).testTag("btn_confirm_collect_installment")
                     ) {
-                        Text("আদায় সম্পন্ন করুন")
+                        Text(
+                            text = "আদায় নিশ্চিত",
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,6 +42,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.example.ui.theme.SilverCardAltBg
@@ -211,22 +213,37 @@ fun ReceiptDialog(
                             context.startActivity(shareIntent)
                         },
                         border = BorderStroke(1.2.dp, Color(0xFF0D683B)),
-                        modifier = Modifier.weight(1f).testTag("btn_share_receipt")
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(0.95f).testTag("btn_share_receipt")
                     ) {
                         Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF0D683B), modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("শেয়ার", color = Color(0xFF0D683B), fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "শেয়ার",
+                            color = Color(0xFF0D683B),
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     Button(
                         onClick = onDismiss,
-                        modifier = Modifier.weight(1f).testTag("btn_done_receipt"),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(1.05f).testTag("btn_done_receipt"),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Color(0xFF0D683B),
                             contentColor = Color.White
                         )
                     ) {
-                        Text("ঠিক আছে", fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            text = "ঠিক আছে",
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }

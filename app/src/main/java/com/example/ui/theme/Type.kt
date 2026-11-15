@@ -71,8 +71,8 @@ val Typography =
       TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Medium,
-        fontSize = 14.sp,
-        lineHeight = 19.sp,
+        fontSize = 15.sp,
+        lineHeight = 20.sp,
       ),
     labelLarge =
       TextStyle(
@@ -85,14 +85,14 @@ val Typography =
       TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Bold,
-        fontSize = 13.5.sp,
-        lineHeight = 18.sp,
+        fontSize = 15.sp,
+        lineHeight = 20.sp,
       ),
     labelSmall =
       TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 12.5.sp,
-        lineHeight = 16.sp,
+        fontSize = 15.sp,
+        lineHeight = 20.sp,
       ),
   )
