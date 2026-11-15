@@ -88,8 +88,8 @@ import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.cloud.CloudAutoSyncManager
+import com.example.data.cloud.FirebaseSafeHelper
 import com.example.data.cloud.GoogleAuthManager
-import com.example.data.cloud.GoogleAuthManager.authStateFlow
 import com.example.data.local.AppDatabase
 import com.example.data.local.SessionPreferences
 import com.example.data.model.Member
@@ -113,8 +113,6 @@ import com.example.ui.theme.EktaSamitiTheme
 import com.example.ui.theme.SilverCardBorder
 import com.example.ui.viewmodel.AuthViewModel
 import com.example.ui.viewmodel.SamitiViewModel
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -122,7 +120,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Dhaka"))
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("Asia/Dhaka"))
+        } catch (_: Exception) {
+        }
         enableEdgeToEdge()
         if (intent?.getBooleanExtra(LoanReminderNotificationHelper.EXTRA_OPEN_LOANS, false) == true) {
             openLoansFromNotificationState.value = true
@@ -137,23 +138,32 @@ class MainActivity : ComponentActivity() {
             EktaSamitiTheme {
                 val context = LocalContext.current
                 val scope = rememberCoroutineScope()
-                val credentialManager = remember(context) { CredentialManager.create(context) }
+                val credentialManager = remember(context) {
+                    try {
+                        CredentialManager.create(context)
+                    } catch (_: Throwable) {
+                        null
+                    }
+                }
 
                 val authViewModel = remember { AuthViewModel(repository, sessionPreferences) }
                 val samitiViewModel = remember { SamitiViewModel(repository) }
 
                 val authState by authViewModel.uiState.collectAsState()
                 val currentUser = authState.currentUser
-                val firebaseUser by Firebase.auth.authStateFlow().collectAsStateWithLifecycle(
-                    initialValue = Firebase.auth.currentUser
+                val firebaseUser by remember(context) {
+                    FirebaseSafeHelper.authStateFlow(context)
+                }.collectAsStateWithLifecycle(
+                    initialValue = FirebaseSafeHelper.authOrNull(context)?.currentUser
                 )
 
                 // Silent Google auto-sign-in attempt on startup
                 LaunchedEffect(Unit) {
-                    if (Firebase.auth.currentUser == null) {
+                    val cm = credentialManager ?: return@LaunchedEffect
+                    if (FirebaseSafeHelper.authOrNull(context)?.currentUser == null) {
                         GoogleAuthManager.attemptAutoSignIn(
                             context = context,
-                            credentialManager = credentialManager,
+                            credentialManager = cm,
                             scope = scope,
                             onAuthSuccess = { fbUser ->
                                 authViewModel.onGoogleFirebaseSignedIn(
@@ -175,7 +185,7 @@ class MainActivity : ComponentActivity() {
                         cloudAutoSyncManager.stop()
                     }
                     onDispose {
-                        if (Firebase.auth.currentUser == null) {
+                        if (FirebaseSafeHelper.authOrNull(context)?.currentUser == null) {
                             cloudAutoSyncManager.stop()
                         }
                     }

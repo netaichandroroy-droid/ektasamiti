@@ -26,28 +26,35 @@ object LoanReminderNotificationHelper {
     const val EXTRA_OPEN_LOANS = "extra_open_loans"
 
     fun ensureNotificationChannel(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "সাপ্তাহিক ঋণ পরিশোধ রিমাইন্ডার",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "সদস্যদের আসন্ন সাপ্তাহিক ঋণের কিস্তি পরিশোধের তারিখ সম্পর্কে পরিচালককে স্মরণ করিয়ে দেয়।"
-                enableVibration(true)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    CHANNEL_ID,
+                    "সাপ্তাহিক ঋণ পরিশোধ রিমাইন্ডার",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "সদস্যদের আসন্ন সাপ্তাহিক ঋণের কিস্তি পরিশোধের তারিখ সম্পর্কে পরিচালককে স্মরণ করিয়ে দেয়।"
+                    enableVibration(true)
+                }
+                val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+                manager.createNotificationChannel(channel)
             }
-            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(channel)
+        } catch (_: Exception) {
         }
     }
 
     fun hasNotificationPermission(context: Context): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            NotificationManagerCompat.from(context).areNotificationsEnabled()
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                NotificationManagerCompat.from(context).areNotificationsEnabled()
+            }
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -72,7 +79,7 @@ object LoanReminderNotificationHelper {
 
         val dateSdf = SimpleDateFormat("dd MMM", Locale.getDefault())
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_ekta_samiti_logo_1794238685688)
+            .setSmallIcon(R.drawable.ic_notification_samiti)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
@@ -121,37 +128,43 @@ object LoanReminderNotificationHelper {
     }
 
     fun scheduleDailyReminder(context: Context) {
-        val settings = LoanReminderPreferences.getSettings(context)
-        if (!settings.isEnabled) {
-            cancelDailyReminder(context)
-            return
-        }
-
-        ensureNotificationChannel(context)
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-        val pendingIntent = buildReceiverPendingIntent(context)
-
-        val triggerCal = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, settings.reminderHour)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-            if (timeInMillis <= System.currentTimeMillis()) {
-                add(Calendar.DAY_OF_YEAR, 1)
+        try {
+            val settings = LoanReminderPreferences.getSettings(context)
+            if (!settings.isEnabled) {
+                cancelDailyReminder(context)
+                return
             }
-        }
 
-        alarmManager.setInexactRepeating(
-            AlarmManager.RTC_WAKEUP,
-            triggerCal.timeInMillis,
-            AlarmManager.INTERVAL_DAY,
-            pendingIntent
-        )
+            ensureNotificationChannel(context)
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            val pendingIntent = buildReceiverPendingIntent(context)
+
+            val triggerCal = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, settings.reminderHour)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+                if (timeInMillis <= System.currentTimeMillis()) {
+                    add(Calendar.DAY_OF_YEAR, 1)
+                }
+            }
+
+            alarmManager.setInexactRepeating(
+                AlarmManager.RTC_WAKEUP,
+                triggerCal.timeInMillis,
+                AlarmManager.INTERVAL_DAY,
+                pendingIntent
+            )
+        } catch (_: Exception) {
+        }
     }
 
     fun cancelDailyReminder(context: Context) {
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-        alarmManager.cancel(buildReceiverPendingIntent(context))
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            alarmManager.cancel(buildReceiverPendingIntent(context))
+        } catch (_: Exception) {
+        }
     }
 
     private fun buildReceiverPendingIntent(context: Context): PendingIntent {

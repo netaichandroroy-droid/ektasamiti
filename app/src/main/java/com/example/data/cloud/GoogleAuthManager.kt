@@ -12,11 +12,9 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
-import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.auth.auth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.awaitClose
@@ -44,7 +42,16 @@ object GoogleAuthManager {
         onAuthSuccess: (FirebaseUser) -> Unit,
         onUnauthenticated: () -> Unit
     ) {
-        val existing = Firebase.auth.currentUser
+        val fbAuth = FirebaseSafeHelper.authOrNull(context)
+        if (fbAuth == null) {
+            onUnauthenticated()
+            return
+        }
+        val existing = try {
+            fbAuth.currentUser
+        } catch (_: Exception) {
+            null
+        }
         if (existing != null) {
             onAuthSuccess(existing)
             return
@@ -56,15 +63,21 @@ object GoogleAuthManager {
             return
         }
 
-        val googleIdOption = GetGoogleIdOption.Builder()
-            .setFilterByAuthorizedAccounts(true)
-            .setServerClientId(clientId)
-            .setAutoSelectEnabled(true)
-            .build()
+        val request = try {
+            val googleIdOption = GetGoogleIdOption.Builder()
+                .setFilterByAuthorizedAccounts(true)
+                .setServerClientId(clientId)
+                .setAutoSelectEnabled(true)
+                .build()
 
-        val request = GetCredentialRequest.Builder()
-            .addCredentialOption(googleIdOption)
-            .build()
+            GetCredentialRequest.Builder()
+                .addCredentialOption(googleIdOption)
+                .build()
+        } catch (e: Exception) {
+            Log.d(TAG, "Auto sign-in request build skipped: ${e.message}")
+            onUnauthenticated()
+            return
+        }
 
         scope.launch {
             try {
@@ -73,7 +86,7 @@ object GoogleAuthManager {
                 if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                     val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
                     val authCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
-                    val authResult = Firebase.auth.signInWithCredential(authCredential).await()
+                    val authResult = fbAuth.signInWithCredential(authCredential).await()
                     val user = authResult.user
                     if (user != null) {
                         onAuthSuccess(user)
@@ -110,6 +123,12 @@ object GoogleAuthManager {
             return
         }
 
+        val fbAuth = FirebaseSafeHelper.authOrNull(context)
+        if (fbAuth == null) {
+            onAuthError("Firebase লগইন সেবা এই মুহূর্তে প্রস্তুত নয়")
+            return
+        }
+
         val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
         val request = GetCredentialRequest.Builder()
             .addCredentialOption(signInOption)
@@ -122,7 +141,7 @@ object GoogleAuthManager {
                 if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                     val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
                     val authCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
-                    val authResult = Firebase.auth.signInWithCredential(authCredential).await()
+                    val authResult = fbAuth.signInWithCredential(authCredential).await()
                     val user = authResult.user
                     if (user != null) {
                         onAuthSuccess(user)
@@ -154,7 +173,10 @@ object GoogleAuthManager {
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to clear credential state: ${e.message}")
                 } finally {
-                    Firebase.auth.signOut()
+                    try {
+                        FirebaseSafeHelper.authOrNull()?.signOut()
+                    } catch (_: Exception) {
+                    }
                     onSignOutComplete()
                 }
             }

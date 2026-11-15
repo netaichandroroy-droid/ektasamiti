@@ -58,8 +58,11 @@ abstract class AppDatabase : RoomDatabase() {
                             super.onCreate(db)
                             // Populate only default admin and collector accounts. NO auto members or collections.
                             CoroutineScope(Dispatchers.IO).launch {
-                                val database = getInstance(context)
-                                prepopulateDatabase(database)
+                                try {
+                                    val database = getInstance(context)
+                                    prepopulateDatabase(database)
+                                } catch (_: Exception) {
+                                }
                             }
                         }
                     })

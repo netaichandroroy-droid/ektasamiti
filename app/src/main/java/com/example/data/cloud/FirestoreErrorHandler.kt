@@ -1,8 +1,6 @@
 package com.example.data.cloud
 
 import android.util.Log
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
@@ -27,11 +25,7 @@ fun handleFirestoreError(
         ?: causes.firstOrNull { it !is CancellationException }
         ?: exception
 
-    val currentUser = try {
-        Firebase.auth.currentUser
-    } catch (_: Exception) {
-        null
-    }
+    val currentUser = FirebaseSafeHelper.authOrNull()?.currentUser
 
     val providerInfoList = currentUser?.providerData?.map { provider ->
         JSONObject().apply {

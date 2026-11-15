@@ -33,6 +33,7 @@ class LoanRepaymentReminderReceiver : BroadcastReceiver() {
                         LoanReminderPreferences.markNotifiedToday(appContext)
                     }
                 }
+            } catch (_: Exception) {
             } finally {
                 pendingResult.finish()
             }

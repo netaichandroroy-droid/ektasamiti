@@ -3,13 +3,12 @@ package com.example.ui.viewmodel
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.cloud.FirebaseSafeHelper
 import com.example.data.cloud.GoogleAuthManager
 import com.example.data.local.SessionPreferences
 import com.example.data.model.User
 import com.example.data.model.UserRole
 import com.example.data.repository.SamitiRepository
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,43 +37,46 @@ class AuthViewModel(
     private fun restoreSavedSession() {
         val prefs = sessionPreferences ?: return
         viewModelScope.launch {
-            val savedId = prefs.getLoggedInUserId()
-            val savedEmail = prefs.getLoggedInUserEmail()
-            val restoredLocal = when {
-                savedId != null -> repository.getUserById(savedId)
-                    ?: savedEmail?.let { repository.getUserByEmail(it) }
-                !savedEmail.isNullOrBlank() -> repository.getUserByEmail(savedEmail)
-                else -> null
-            }
+            try {
+                val savedId = prefs.getLoggedInUserId()
+                val savedEmail = prefs.getLoggedInUserEmail()
+                val restoredLocal = when {
+                    savedId != null -> repository.getUserById(savedId)
+                        ?: savedEmail?.let { repository.getUserByEmail(it) }
+                    !savedEmail.isNullOrBlank() -> repository.getUserByEmail(savedEmail)
+                    else -> null
+                }
 
-            if (restoredLocal != null) {
-                _uiState.value = AuthUiState(
-                    currentUser = restoredLocal,
-                    isLoading = false,
-                    isCheckingSession = false
-                )
-                return@launch
-            }
+                if (restoredLocal != null) {
+                    _uiState.value = AuthUiState(
+                        currentUser = restoredLocal,
+                        isLoading = false,
+                        isCheckingSession = false
+                    )
+                    return@launch
+                }
 
-            val firebaseUser = try {
-                Firebase.auth.currentUser
+                val firebaseUser = FirebaseSafeHelper.authOrNull()?.currentUser
+                if (firebaseUser != null) {
+                    val gUser = resolveOrCreateGoogleSamitiUser(
+                        email = firebaseUser.email,
+                        displayName = firebaseUser.displayName
+                    )
+                    prefs.saveLoggedInSession(gUser.id, gUser.email)
+                    _uiState.value = AuthUiState(
+                        currentUser = gUser,
+                        isLoading = false,
+                        isCheckingSession = false
+                    )
+                } else {
+                    prefs.clearSession()
+                    _uiState.value = AuthUiState(
+                        currentUser = null,
+                        isLoading = false,
+                        isCheckingSession = false
+                    )
+                }
             } catch (_: Exception) {
-                null
-            }
-
-            if (firebaseUser != null) {
-                val gUser = resolveOrCreateGoogleSamitiUser(
-                    email = firebaseUser.email,
-                    displayName = firebaseUser.displayName
-                )
-                prefs.saveLoggedInSession(gUser.id, gUser.email)
-                _uiState.value = AuthUiState(
-                    currentUser = gUser,
-                    isLoading = false,
-                    isCheckingSession = false
-                )
-            } else {
-                prefs.clearSession()
                 _uiState.value = AuthUiState(
                     currentUser = null,
                     isLoading = false,
@@ -161,7 +163,7 @@ class AuthViewModel(
             GoogleAuthManager.signOut(credentialManager, viewModelScope)
         } else {
             try {
-                Firebase.auth.signOut()
+                FirebaseSafeHelper.authOrNull()?.signOut()
             } catch (_: Exception) {
             }
         }

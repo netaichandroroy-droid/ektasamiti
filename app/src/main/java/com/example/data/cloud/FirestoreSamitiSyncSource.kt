@@ -20,19 +20,30 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 
-class FirestoreSamitiSyncSource(
-    private val db: FirebaseFirestore,
-    private val auth: FirebaseAuth = Firebase.auth
+class FirestoreSamitiSyncSource private constructor(
+    private val dbProvider: () -> FirebaseFirestore?,
+    private val authProvider: () -> FirebaseAuth?
 ) {
-    constructor(context: Context) : this(
-        db = FirebaseFirestore.getInstance(
-            context.applicationContext.getString(R.string.firestore_database_id)
-        ),
-        auth = Firebase.auth
+    constructor(db: FirebaseFirestore, auth: FirebaseAuth = Firebase.auth) : this(
+        dbProvider = { db },
+        authProvider = { auth }
     )
 
+    constructor(context: Context) : this(
+        dbProvider = { FirebaseSafeHelper.firestoreOrNull(context.applicationContext) },
+        authProvider = { FirebaseSafeHelper.authOrNull(context.applicationContext) }
+    )
+
+    private val db: FirebaseFirestore
+        get() = dbProvider()
+            ?: throw IllegalStateException("Firebase Firestore is not initialized on this device.")
+
+    private val auth: FirebaseAuth
+        get() = authProvider()
+            ?: throw IllegalStateException("Firebase Auth is not initialized on this device.")
+
     private fun requireUserId(): String {
-        return auth.currentUser?.uid
+        return authProvider()?.currentUser?.uid
             ?: throw IllegalStateException("Google Sign-In required before accessing Firestore sync.")
     }
 
@@ -52,7 +63,7 @@ class FirestoreSamitiSyncSource(
                     val firestoreError = unwrapFirestoreException(error)
                     if (firestoreError == null && error is CancellationException) throw error
                     val toLog = firestoreError ?: (error as? Exception)
-                    if (toLog != null && auth.currentUser?.uid == uid) {
+                    if (toLog != null && authProvider()?.currentUser?.uid == uid) {
                         handleFirestoreError(toLog, OperationType.LIST, path)
                     }
                     throw error
@@ -76,7 +87,7 @@ class FirestoreSamitiSyncSource(
                     val firestoreError = unwrapFirestoreException(error)
                     if (firestoreError == null && error is CancellationException) throw error
                     val toLog = firestoreError ?: (error as? Exception)
-                    if (toLog != null && auth.currentUser?.uid == uid) {
+                    if (toLog != null && authProvider()?.currentUser?.uid == uid) {
                         handleFirestoreError(toLog, OperationType.LIST, path)
                     }
                     throw error
@@ -100,7 +111,7 @@ class FirestoreSamitiSyncSource(
                     val firestoreError = unwrapFirestoreException(error)
                     if (firestoreError == null && error is CancellationException) throw error
                     val toLog = firestoreError ?: (error as? Exception)
-                    if (toLog != null && auth.currentUser?.uid == uid) {
+                    if (toLog != null && authProvider()?.currentUser?.uid == uid) {
                         handleFirestoreError(toLog, OperationType.LIST, path)
                     }
                     throw error
@@ -124,7 +135,7 @@ class FirestoreSamitiSyncSource(
                     val firestoreError = unwrapFirestoreException(error)
                     if (firestoreError == null && error is CancellationException) throw error
                     val toLog = firestoreError ?: (error as? Exception)
-                    if (toLog != null && auth.currentUser?.uid == uid) {
+                    if (toLog != null && authProvider()?.currentUser?.uid == uid) {
                         handleFirestoreError(toLog, OperationType.LIST, path)
                     }
                     throw error

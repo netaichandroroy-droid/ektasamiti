@@ -7,8 +7,6 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.util.Log
 import com.example.data.local.AppDatabase
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -82,11 +80,20 @@ class CloudAutoSyncManager(
         _syncState.value = _syncState.value.copy(isNetworkOnline = isCurrentlyOnline())
     }
 
+    private fun currentFirebaseUid(): String? {
+        return FirebaseSafeHelper.authOrNull(context)?.currentUser?.uid
+    }
+
     private fun isCurrentlyOnline(): Boolean {
-        val cm = connectivityManager ?: return true
-        val activeNetwork = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        return try {
+            val cm = connectivityManager ?: return true
+            val activeNetwork = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Unable to inspect network state: ${t.message}")
+            true
+        }
     }
 
     fun startForUser(uid: String, email: String?) {
@@ -143,12 +150,12 @@ class CloudAutoSyncManager(
     }
 
     fun triggerAutoSyncNow() {
-        val uid = activeUserId ?: Firebase.auth.currentUser?.uid ?: return
-        if (Firebase.auth.currentUser?.uid != uid) return
+        val uid = activeUserId ?: currentFirebaseUid() ?: return
+        if (currentFirebaseUid() != uid) return
 
         scope.launch {
             syncMutex.withLock {
-                if (Firebase.auth.currentUser?.uid != uid) return@withLock
+                if (currentFirebaseUid() != uid) return@withLock
                 val online = isCurrentlyOnline()
                 _syncState.value = _syncState.value.copy(
                     status = if (online) CloudSyncStatus.SYNCING else CloudSyncStatus.OFFLINE_PENDING,
@@ -177,7 +184,7 @@ class CloudAutoSyncManager(
     }
 
     fun pushMemberAsync(memberCode: String) {
-        if (activeUserId == null && Firebase.auth.currentUser == null) return
+        if (activeUserId == null && currentFirebaseUid() == null) return
         scope.launch {
             try {
                 val member = database.memberDao().getMemberByCode(memberCode) ?: return@launch
@@ -190,7 +197,7 @@ class CloudAutoSyncManager(
     }
 
     fun pushSavingsByReceiptAsync(receiptNumber: String, memberCode: String) {
-        if (activeUserId == null && Firebase.auth.currentUser == null) return
+        if (activeUserId == null && currentFirebaseUid() == null) return
         scope.launch {
             try {
                 database.memberDao().getMemberByCode(memberCode)?.let { syncSource.upsertMember(it) }
@@ -209,7 +216,7 @@ class CloudAutoSyncManager(
         disbursedDate: Long,
         receiptNumber: String? = null
     ) {
-        if (activeUserId == null && Firebase.auth.currentUser == null) return
+        if (activeUserId == null && currentFirebaseUid() == null) return
         scope.launch {
             try {
                 database.memberDao().getMemberByCode(memberCode)?.let { syncSource.upsertMember(it) }
@@ -231,7 +238,7 @@ class CloudAutoSyncManager(
     }
 
     fun deleteMemberFromCloudAsync(memberCode: String) {
-        if (activeUserId == null && Firebase.auth.currentUser == null) return
+        if (activeUserId == null && currentFirebaseUid() == null) return
         scope.launch {
             try {
                 syncSource.deleteMember(memberCode)
@@ -243,7 +250,7 @@ class CloudAutoSyncManager(
     }
 
     fun deleteSavingsFromCloudAsync(receiptNumber: String) {
-        if (activeUserId == null && Firebase.auth.currentUser == null) return
+        if (activeUserId == null && currentFirebaseUid() == null) return
         scope.launch {
             try {
                 syncSource.deleteSavingsTransaction(receiptNumber)
@@ -255,7 +262,7 @@ class CloudAutoSyncManager(
     }
 
     fun deleteLoanFromCloudAsync(memberCode: String, disbursedDate: Long) {
-        if (activeUserId == null && Firebase.auth.currentUser == null) return
+        if (activeUserId == null && currentFirebaseUid() == null) return
         scope.launch {
             try {
                 syncSource.deleteLoan(memberCode, disbursedDate)
@@ -267,7 +274,7 @@ class CloudAutoSyncManager(
     }
 
     fun resyncMemberRegistrationDateAsync(memberCode: String) {
-        if (activeUserId == null && Firebase.auth.currentUser == null) return
+        if (activeUserId == null && currentFirebaseUid() == null) return
         scope.launch {
             try {
                 val member = database.memberDao().getMemberByCode(memberCode) ?: return@launch
@@ -281,7 +288,7 @@ class CloudAutoSyncManager(
     }
 
     fun resyncSavingsTransactionDateAsync(receiptNumber: String) {
-        if (activeUserId == null && Firebase.auth.currentUser == null) return
+        if (activeUserId == null && currentFirebaseUid() == null) return
         scope.launch {
             try {
                 val tx = database.savingsDao().getTransactionByReceipt(receiptNumber) ?: return@launch
@@ -300,7 +307,7 @@ class CloudAutoSyncManager(
         newDisbursedDate: Long,
         loanId: Long
     ) {
-        if (activeUserId == null && Firebase.auth.currentUser == null) return
+        if (activeUserId == null && currentFirebaseUid() == null) return
         scope.launch {
             try {
                 val loan = database.loanDao().getLoanByMemberCodeAndDate(memberCode, newDisbursedDate)
@@ -325,7 +332,7 @@ class CloudAutoSyncManager(
     }
 
     fun resyncInstallmentDateAsync(receiptNumber: String, loanId: Long) {
-        if (activeUserId == null && Firebase.auth.currentUser == null) return
+        if (activeUserId == null && currentFirebaseUid() == null) return
         scope.launch {
             try {
                 val payment = database.installmentDao().getPaymentByReceipt(receiptNumber) ?: return@launch
@@ -386,7 +393,7 @@ class CloudAutoSyncManager(
                 .catch { error ->
                     val root = unwrapFirestoreException(error) ?: error
                     Log.w(TAG, "Realtime members listener error", root)
-                    if (Firebase.auth.currentUser?.uid == uid) {
+                    if (currentFirebaseUid() == uid) {
                         _syncState.value = _syncState.value.copy(
                             status = CloudSyncStatus.ERROR,
                             errorMessage = root.localizedMessage ?: "সদস্য সিঙ্ক ত্রুটি"
