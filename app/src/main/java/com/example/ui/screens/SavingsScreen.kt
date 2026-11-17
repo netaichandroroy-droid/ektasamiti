@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,10 +13,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -242,6 +245,59 @@ fun SavingsScreen(
                             softWrap = false,
                             overflow = TextOverflow.Ellipsis
                         )
+                    }
+                }
+
+                if (members.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "নাম অনুযায়ী দ্রুত সঞ্চয় জমা:",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("savings_quick_member_row")
+                    ) {
+                        items(members, key = { it.id }) { member ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFE8F8EE),
+                                border = BorderStroke(1.dp, Color(0xFF16A34A).copy(alpha = 0.55f)),
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .clickable {
+                                        selectedMemberForAction = member
+                                        showDepositDialog = true
+                                    }
+                                    .testTag("btn_savings_member_${member.memberCode}")
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "${member.memberCode}. ${member.name}",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF065F46),
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "জমা",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color(0xFF15803D)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -561,6 +617,54 @@ fun SavingsDepositDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
+                if (members.isNotEmpty()) {
+                    Text(
+                        text = "নাম নির্বাচন করুন:",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(members, key = { it.id }) { m ->
+                            val isSelected = selectedMember?.id == m.id
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFFF1F5F9),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFFCBD5E1)
+                                ),
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .clickable {
+                                        selectedMember = m
+                                        error = null
+                                    }
+                                    .testTag("chip_deposit_member_${m.memberCode}")
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "${m.memberCode}. ${m.name}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) Color.White else Color(0xFF0F172A),
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
                 // Member Dropdown selector
                 ExposedDropdownMenuBox(
                     expanded = expanded,
@@ -668,6 +772,7 @@ fun SavingsDepositDialog(
 
                 Spacer(modifier = Modifier.height(18.dp))
 
+                val depositSubmitLabel = selectedMember?.let { "${it.name} - জমা নিশ্চিত" } ?: "জমা নিশ্চিত"
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -675,7 +780,7 @@ fun SavingsDepositDialog(
                     OutlinedButton(
                         onClick = onDismiss,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                        modifier = Modifier.weight(0.8f)
+                        modifier = Modifier.weight(0.65f)
                     ) {
                         Text(
                             text = "বাতিল",
@@ -701,10 +806,10 @@ fun SavingsDepositDialog(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                        modifier = Modifier.weight(1.2f).testTag("btn_confirm_deposit")
+                        modifier = Modifier.weight(1.35f).testTag("btn_confirm_deposit")
                     ) {
                         Text(
-                            text = "জমা নিশ্চিত",
+                            text = depositSubmitLabel,
                             maxLines = 1,
                             softWrap = false,
                             overflow = TextOverflow.Ellipsis
@@ -760,6 +865,54 @@ fun SavingsWithdrawDialog(
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
+
+                if (members.isNotEmpty()) {
+                    Text(
+                        text = "নাম নির্বাচন করুন:",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(members, key = { it.id }) { m ->
+                            val isSelected = selectedMember?.id == m.id
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.error else Color(0xFFF1F5F9),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isSelected) MaterialTheme.colorScheme.error else Color(0xFFCBD5E1)
+                                ),
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .clickable {
+                                        selectedMember = m
+                                        error = null
+                                    }
+                                    .testTag("chip_withdraw_member_${m.memberCode}")
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "${m.memberCode}. ${m.name}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) Color.White else Color(0xFF0F172A),
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
 
                 ExposedDropdownMenuBox(
                     expanded = expanded,
@@ -843,6 +996,7 @@ fun SavingsWithdrawDialog(
 
                 Spacer(modifier = Modifier.height(18.dp))
 
+                val withdrawSubmitLabel = selectedMember?.let { "${it.name} - উত্তোলন নিশ্চিত" } ?: "উত্তোলন নিশ্চিত"
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -850,7 +1004,7 @@ fun SavingsWithdrawDialog(
                     OutlinedButton(
                         onClick = onDismiss,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                        modifier = Modifier.weight(0.8f)
+                        modifier = Modifier.weight(0.65f)
                     ) {
                         Text(
                             text = "বাতিল",
@@ -880,10 +1034,10 @@ fun SavingsWithdrawDialog(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                        modifier = Modifier.weight(1.2f).testTag("btn_confirm_withdraw")
+                        modifier = Modifier.weight(1.35f).testTag("btn_confirm_withdraw")
                     ) {
                         Text(
-                            text = "উত্তোলন নিশ্চিত",
+                            text = withdrawSubmitLabel,
                             maxLines = 1,
                             softWrap = false,
                             overflow = TextOverflow.Ellipsis

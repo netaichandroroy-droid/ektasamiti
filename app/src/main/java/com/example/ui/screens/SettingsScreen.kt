@@ -107,6 +107,7 @@ import com.example.notifications.LoanReminderCalculator
 import com.example.notifications.LoanReminderNotificationHelper
 import com.example.notifications.LoanReminderPreferences
 import com.example.ui.components.AppUpdateAvailableDialog
+import com.example.ui.components.CloudAutoSyncBanner
 import com.example.ui.components.MonthlySummaryPreviewDialog
 import com.example.ui.components.WeeklyCollectionBarChartCard
 import com.example.ui.theme.SilverCardBg
@@ -137,6 +138,7 @@ fun SettingsScreen(
     val installmentsList by viewModel.installmentsList.collectAsState()
     val collectors by viewModel.collectorsList.collectAsState()
     val backupData by viewModel.backupData.collectAsState()
+    val cloudSyncState by viewModel.cloudSyncState.collectAsState()
 
     val last4WeeksData = remember(savingsList, installmentsList) {
         WeeklyChartAggregator.computeLast4Weeks(
@@ -470,13 +472,25 @@ fun SettingsScreen(
         item {
             SettingsSectionLabel(title = "ডাটাবেজ ও ব্যাকআপ")
             Spacer(modifier = Modifier.height(6.dp))
+            CloudAutoSyncBanner(
+                syncState = cloudSyncState,
+                onSyncNow = {
+                    viewModel.triggerCloudSyncNow()
+                    onShowMessage("ক্লাউড সিঙ্ক শুরু হয়েছে...")
+                },
+                onGoogleSignInSuccess = {
+                    viewModel.triggerCloudSyncNow()
+                },
+                onFeedbackMessage = onShowMessage
+            )
+            Spacer(modifier = Modifier.height(10.dp))
             SettingsListGroupCard(testTag = "card_settings_backup") {
                 SettingsOptionRow(
                     icon = Icons.Default.Storage,
                     iconBg = Color(0xFFE8F7EE),
                     iconTint = Color(0xFF0D683B),
-                    title = "১০ জিবি স্থায়ী ডাটাবেজ ধারণক্ষমতা",
-                    subtitle = "ডাটা নিরাপদ ও স্থায়ীভাবে সংরক্ষিত থাকবে"
+                    title = "স্থায়ী ডাটাবেজ ও ক্লাউড সংরক্ষণ",
+                    subtitle = "অ্যাপ আপডেট বা ফোন বন্ধ হলেও সকল তথ্য স্থায়ীভাবে সংরক্ষিত থাকবে"
                 )
                 HorizontalDivider(color = SilverCardBorder)
                 SettingsOptionRow(

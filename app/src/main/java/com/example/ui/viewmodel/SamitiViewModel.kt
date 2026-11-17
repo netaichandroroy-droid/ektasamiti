@@ -2,6 +2,8 @@ package com.example.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.cloud.CloudAutoSyncManager
+import com.example.data.cloud.CloudSyncState
 import com.example.data.model.InstallmentPayment
 import com.example.data.model.Loan
 import com.example.data.model.Member
@@ -17,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -34,7 +37,17 @@ data class ReceiptData(
     val notes: String = ""
 )
 
-class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
+class SamitiViewModel(
+    private val repository: SamitiRepository,
+    private val cloudAutoSyncManager: CloudAutoSyncManager? = null
+) : ViewModel() {
+    val cloudSyncState: StateFlow<CloudSyncState> =
+        cloudAutoSyncManager?.syncState ?: MutableStateFlow(CloudSyncState()).asStateFlow()
+
+    fun triggerCloudSyncNow() {
+        cloudAutoSyncManager?.triggerAutoSyncNow()
+    }
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
@@ -49,6 +62,10 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
         if (filter == "ALL") memberList
         else memberList.filter { it.memberType == filter }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val nextMemberCode: StateFlow<String> = repository.getAllMembersFlow()
+        .map { all -> SamitiRepository.computeNextMemberCode(all) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "01")
 
     val savingsList: StateFlow<List<SavingsTransaction>> = repository.getAllSavingsFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -84,6 +101,10 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
     // Prominent Success Pop-Up Modal on any data submission
     private val _activeSuccessPopup = MutableStateFlow<SuccessPopupData?>(null)
     val activeSuccessPopup: StateFlow<SuccessPopupData?> = _activeSuccessPopup.asStateFlow()
+
+    // Members whose weekly collection has been submitted in the active session
+    private val _submittedWeeklyMemberIds = MutableStateFlow<Set<Long>>(emptySet())
+    val submittedWeeklyMemberIds: StateFlow<Set<Long>> = _submittedWeeklyMemberIds.asStateFlow()
 
     fun showSuccessPopup(data: SuccessPopupData) {
         _activeSuccessPopup.value = data
@@ -140,8 +161,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
-            val codeNumber = (1001 + (members.value.maxOfOrNull { it.id } ?: 0L)).toInt()
-            val memberCode = "ES-$codeNumber"
+            val memberCode = repository.getNextMemberCode()
             val newMember = Member(
                 memberCode = memberCode,
                 name = name.trim(),
@@ -154,7 +174,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                 nomineeRelation = nomineeRelation.trim(),
                 photoUri = photoUri,
                 admissionFee = admissionFee,
-                savingsBalance = initialSavings,
+                savingsBalance = 0.0,
                 registrationDate = registrationDate,
                 registeredBy = registeredBy
             )
@@ -172,18 +192,23 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                 )
             }
 
-            _snackbarMessage.value = "নতুন সদস্য সফলভাবে নিবন্ধিত হয়েছে (কোড: $memberCode)"
+            _snackbarMessage.value = "নতুন সদস্য সফলভাবে নিবন্ধিত হয়েছে (SL: $memberCode)"
             _activeSuccessPopup.value = SuccessPopupData(
                 title = "সদস্য নিবন্ধন সফল!",
                 message = "${name.trim()} সফলভাবে সমিতির সদস্য তালিকায় যুক্ত হয়েছেন।",
                 details = buildList {
-                    add("সদস্যের নাম" to name.trim())
-                    add("সদস্য কোড" to memberCode)
-                    add("নিবন্ধনের তারিখ" to SamitiDateUtils.formatDateDisplay(registrationDate))
+                    add("SL নং" to memberCode)
+                    add("নাম" to name.trim())
                     if (mobile.isNotBlank()) add("মোবাইল" to mobile.trim())
-                    add("ভর্তি ফি" to "৳${admissionFee.toInt()}")
+                    if (fatherOrHusbandName.isNotBlank()) add("পিতা / স্বামী" to fatherOrHusbandName.trim())
+                    if (nid.isNotBlank()) add("আইডি নং" to nid.trim())
+                    if (address.isNotBlank()) add("গ্রাম" to address.trim())
+                    add("তারিখ" to SamitiDateUtils.formatShortDate(registrationDate))
+                    if (admissionFee > 0.0) {
+                        add("ভর্তি ফি" to "৳${admissionFee.toInt()}")
+                    }
                     if (initialSavings > 0.0) {
-                        add("প্রারম্ভিক সঞ্চয়" to "৳${initialSavings.toInt()}")
+                        add("টাকা" to "৳${initialSavings.toInt()}")
                     }
                 }
             )
@@ -203,6 +228,17 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
         onComplete: () -> Unit
     ) {
         viewModelScope.launch {
+            if (savingsPlan == "WEEKLY" && repository.hasWeeklyCollectionOnDate(member.id, customDate)) {
+                val dateStr = SamitiDateUtils.formatShortDate(customDate)
+                _snackbarMessage.value = "${member.name} এর জন্য $dateStr তারিখে আগেই সাবমিট করা হয়েছে — এক তারিখে দুইবার সাবমিট হবে না!"
+                _activeSuccessPopup.value = SuccessPopupData(
+                    title = "এক তারিখে দুইবার সাবমিট হবে না!",
+                    message = "${member.name} (${member.memberCode}) এর জন্য $dateStr তারিখে ইতিমধ্যে জমা এন্ট্রি রয়েছে।",
+                    isWarning = true
+                )
+                onComplete()
+                return@launch
+            }
             val transaction = repository.recordSavingsDeposit(
                 member = member,
                 amount = amount,
@@ -240,9 +276,15 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
     ) {
         viewModelScope.launch {
             var count = 0
+            var skippedDuplicateCount = 0
             var totalAmount = 0.0
+            val submittedIds = mutableSetOf<Long>()
             for ((member, amount) in collections) {
                 if (amount > 0.0) {
+                    if (repository.hasWeeklyCollectionOnDate(member.id, fridayDateMillis)) {
+                        skippedDuplicateCount++
+                        continue
+                    }
                     repository.recordSavingsDeposit(
                         member = member,
                         amount = amount,
@@ -252,9 +294,13 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                         role = role,
                         customDate = fridayDateMillis
                     )
+                    submittedIds.add(member.id)
                     count++
                     totalAmount += amount
                 }
+            }
+            if (submittedIds.isNotEmpty()) {
+                _submittedWeeklyMemberIds.value = _submittedWeeklyMemberIds.value + submittedIds
             }
             if (count > 0) {
                 _snackbarMessage.value = "$count জন সদস্যের মোট ৳${totalAmount.toInt()} সাপ্তাহিক কালেকশন সফলভাবে জমা হয়েছে"
@@ -267,6 +313,14 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                         "সর্বমোট আদায়" to "৳${totalAmount.toInt()}",
                         "সংগ্রাহক" to collectedBy
                     )
+                )
+            } else if (skippedDuplicateCount > 0) {
+                val dateStr = SamitiDateUtils.formatShortDate(fridayDateMillis)
+                _snackbarMessage.value = "$dateStr তারিখে আগেই সাবমিট করা হয়েছে — এক তারিখে দুইবার সাবমিট হবে না!"
+                _activeSuccessPopup.value = SuccessPopupData(
+                    title = "এক তারিখে দুইবার সাবমিট হবে না!",
+                    message = "$dateStr তারিখে নির্বাচিত সদস্যদের এন্ট্রি ইতিমধ্যে সংরক্ষিত রয়েছে।",
+                    isWarning = true
                 )
             } else {
                 _snackbarMessage.value = "কোন কালেকশন এন্ট্রি করা হয়নি"
@@ -296,6 +350,18 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
             val didSavings = savingsAmount > 0.0
             val didLoan = loanAmount > 0.0 && activeLoan != null
 
+            if ((didSavings || didLoan) && repository.hasWeeklyCollectionOnDate(member.id, fridayDateMillis)) {
+                val dateStr = SamitiDateUtils.formatShortDate(fridayDateMillis)
+                _snackbarMessage.value = "${member.name} এর জন্য $dateStr তারিখে আগেই সাবমিট করা হয়েছে — এক তারিখে দুইবার সাবমিট হবে না!"
+                _activeSuccessPopup.value = SuccessPopupData(
+                    title = "এক তারিখে দুইবার সাবমিট হবে না!",
+                    message = "${member.name} (${member.memberCode}) এর জন্য $dateStr তারিখে ইতিমধ্যে টাকা সাবমিট করা হয়েছে।",
+                    isWarning = true
+                )
+                onComplete()
+                return@launch
+            }
+
             if (didSavings && !didLoan) {
                 val tx = repository.recordSavingsDeposit(
                     member = member,
@@ -318,6 +384,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                     timestamp = tx.date,
                     notes = "$fridayLabel এর সাপ্তাহিক সঞ্চয়"
                 )
+                _snackbarMessage.value = "${member.name} এর ৳${savingsAmount.toInt()} Weekly Collection (${SamitiDateUtils.formatShortDate(fridayDateMillis)}) এ যোগ হয়েছে"
             } else if (!didSavings && didLoan && activeLoan != null) {
                 val payment = repository.collectInstallment(
                     loan = activeLoan,
@@ -339,6 +406,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                     timestamp = payment.paymentDate,
                     notes = "$fridayLabel এর কিস্তি আদায়"
                 )
+                _snackbarMessage.value = "${member.name} এর কিস্তি ৳${loanAmount.toInt()} Weekly Collection (${SamitiDateUtils.formatShortDate(fridayDateMillis)}) এ যোগ হয়েছে"
             } else if (didSavings && didLoan && activeLoan != null) {
                 val tx = repository.recordSavingsDeposit(
                     member = member,
@@ -367,12 +435,16 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
                         "সর্বমোট জমা" to "৳${(savingsAmount + loanAmount).toInt()}"
                     )
                 )
+                _snackbarMessage.value = "${member.name} এর ৳${(savingsAmount + loanAmount).toInt()} Weekly Collection (${SamitiDateUtils.formatShortDate(fridayDateMillis)}) এ যোগ হয়েছে"
             } else {
                 _activeSuccessPopup.value = SuccessPopupData(
                     title = "কোনো পরিমাণ দেওয়া হয়নি",
                     message = "অনুগ্রহ করে সঞ্চয় বা কিস্তির পরিমাণ লিখুন।",
                     isWarning = true
                 )
+            }
+            if (didSavings || didLoan) {
+                _submittedWeeklyMemberIds.value = _submittedWeeklyMemberIds.value + member.id
             }
             onComplete()
         }
@@ -531,6 +603,24 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
         }
     }
 
+    fun updateWeeklyEntriesDate(
+        savingsTransactions: List<SavingsTransaction>,
+        installmentPayments: List<InstallmentPayment>,
+        newDateMillis: Long,
+        onComplete: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            savingsTransactions.forEach { tx ->
+                repository.updateSavingsTransactionDate(tx, newDateMillis)
+            }
+            installmentPayments.forEach { pay ->
+                repository.updateInstallmentPaymentDate(pay, newDateMillis)
+            }
+            _snackbarMessage.value = "সাপ্তাহিক কালেকশনের তারিখ আপডেট করা হয়েছে"
+            onComplete()
+        }
+    }
+
     // Add Collector (Admin only)
     fun addCollector(
         name: String,
@@ -568,6 +658,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
         viewModelScope.launch {
             val success = repository.deleteMember(member, role)
             if (success) {
+                _submittedWeeklyMemberIds.value = _submittedWeeklyMemberIds.value - member.id
                 _snackbarMessage.value = "${member.name} এর তথ্য মুছে ফেলা হয়েছে"
                 _activeSuccessPopup.value = SuccessPopupData(
                     title = "সদস্য মুছে ফেলা সফল!",
@@ -598,6 +689,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
         viewModelScope.launch {
             val success = repository.deleteSavingsTransaction(transaction, role)
             if (success) {
+                _submittedWeeklyMemberIds.value = _submittedWeeklyMemberIds.value - transaction.memberId
                 _snackbarMessage.value = "সঞ্চয় লেনদেন মুছে ফেলা হয়েছে"
                 _activeSuccessPopup.value = SuccessPopupData(
                     title = "লেনদেন মুছে ফেলা সফল!",
@@ -660,6 +752,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
             }
             val success = repository.clearAllSamitiData(role)
             if (success) {
+                _submittedWeeklyMemberIds.value = emptySet()
                 _snackbarMessage.value = "সকল সদস্য ও লেনদেনের ডাটা সম্পূর্ণ মুছে ফেলা হয়েছে"
                 _activeSuccessPopup.value = SuccessPopupData(
                     title = "সকল ডাটা রিসেট সফল!",
@@ -677,6 +770,7 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
         viewModelScope.launch {
             val success = repository.clearAllSamitiData(role)
             if (success) {
+                _submittedWeeklyMemberIds.value = emptySet()
                 _snackbarMessage.value = "সকল সদস্য ও লেনদেনের ডাটা সম্পূর্ণ মুছে ফেলা হয়েছে"
                 _activeSuccessPopup.value = SuccessPopupData(
                     title = "সকল ডাটা রিসেট সফল!",

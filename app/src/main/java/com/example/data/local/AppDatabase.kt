@@ -59,7 +59,6 @@ abstract class AppDatabase : RoomDatabase() {
                     "ekta_samiti_app.db"
                 )
                     .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
-                    .fallbackToDestructiveMigration()
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

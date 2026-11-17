@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,22 +16,21 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.Paid
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.TableChart
@@ -37,7 +38,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -46,20 +46,18 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -69,11 +67,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.data.model.InstallmentPayment
 import com.example.data.model.Loan
 import com.example.data.model.Member
 import com.example.data.model.SavingsTransaction
 import com.example.data.model.User
 import com.example.ui.components.DatePickerField
+import com.example.ui.components.SamitiDatePickerDialog
 import com.example.ui.components.SamitiDateUtils
 import com.example.ui.viewmodel.SamitiViewModel
 import java.util.Calendar
@@ -85,8 +85,45 @@ data class FridayDateInfo(
     val dateMillis: Long,
     val displayLabel: String,
     val fullDateString: String,
-    val shortDateString: String // e.g. "6.11.26" matching user's spreadsheet image
+    val shortDateString: String, // e.g. "6.11.26" matching user's spreadsheet image
+    val columnKey: String = "",
+    val defaultDateMillis: Long = dateMillis,
+    val isCustomDate: Boolean = false
 )
+
+object WeeklyCollectionDatePrefs {
+    private const val PREFS_NAME = "weekly_collection_date_prefs"
+
+    fun loadAllOverrides(context: Context): Map<String, Long> {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val result = mutableMapOf<String, Long>()
+        prefs.all.forEach { (k, v) ->
+            val millis = when (v) {
+                is Long -> v
+                is Int -> v.toLong()
+                else -> null
+            }
+            if (millis != null) {
+                result[k] = millis
+            }
+        }
+        return result
+    }
+
+    fun saveOverride(context: Context, key: String, millis: Long) {
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(key, millis)
+            .apply()
+    }
+
+    fun clearOverride(context: Context, key: String) {
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(key)
+            .apply()
+    }
+}
 
 data class MonthFridaysGroup(
     val monthIndex: Int,
@@ -106,7 +143,11 @@ val MONTH_NAMES_SHORT = listOf(
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 )
 
-fun calculateFridaysForMonth(year: Int, monthIndex: Int): List<FridayDateInfo> {
+fun calculateFridaysForMonth(
+    year: Int,
+    monthIndex: Int,
+    overrides: Map<String, Long> = emptyMap()
+): List<FridayDateInfo> {
     val fridays = mutableListOf<FridayDateInfo>()
     val cal = Calendar.getInstance()
     cal.set(Calendar.YEAR, year)
@@ -131,15 +172,31 @@ fun calculateFridaysForMonth(year: Int, monthIndex: Int): List<FridayDateInfo> {
                 5 -> "৫ম"
                 else -> "${weekNum}ম"
             }
-            val shortYear = year % 100
+            val key = "${year}_${monthIndex}_$weekNum"
+            val defaultMillis = cal.timeInMillis
+            val overrideMillis = overrides[key]
+            val effectiveMillis = overrideMillis ?: defaultMillis
+            val effectiveCal = Calendar.getInstance().apply { timeInMillis = effectiveMillis }
+            val effDay = effectiveCal.get(Calendar.DAY_OF_MONTH)
+            val effMonth = effectiveCal.get(Calendar.MONTH) + 1
+            val effYear = effectiveCal.get(Calendar.YEAR)
+            val shortYear = effYear % 100
+            val label = if (overrideMillis != null) {
+                "$ordinal কলাম ($effDay/$effMonth/$shortYear)"
+            } else {
+                "$ordinal শুক্রবার ($day তারিখ)"
+            }
             fridays.add(
                 FridayDateInfo(
                     weekIndex = weekNum,
-                    dayOfMonth = day,
-                    dateMillis = cal.timeInMillis,
-                    displayLabel = "$ordinal শুক্রবার ($day তারিখ)",
-                    fullDateString = String.format(Locale.getDefault(), "%02d/%02d/%d", day, monthIndex + 1, year),
-                    shortDateString = "$day.${monthIndex + 1}.$shortYear"
+                    dayOfMonth = effDay,
+                    dateMillis = effectiveMillis,
+                    displayLabel = label,
+                    fullDateString = String.format(Locale.getDefault(), "%02d/%02d/%d", effDay, effMonth, effYear),
+                    shortDateString = "$effDay.$effMonth.$shortYear",
+                    columnKey = key,
+                    defaultDateMillis = defaultMillis,
+                    isCustomDate = overrideMillis != null
                 )
             )
             weekNum++
@@ -148,7 +205,11 @@ fun calculateFridaysForMonth(year: Int, monthIndex: Int): List<FridayDateInfo> {
     return fridays
 }
 
-fun calculateTwoMonthsFridays(year: Int, startMonthIndex: Int): List<MonthFridaysGroup> {
+fun calculateTwoMonthsFridays(
+    year: Int,
+    startMonthIndex: Int,
+    overrides: Map<String, Long> = emptyMap()
+): List<MonthFridaysGroup> {
     val groups = mutableListOf<MonthFridaysGroup>()
     for (i in 0..1) {
         var mIdx = startMonthIndex + i
@@ -159,7 +220,7 @@ fun calculateTwoMonthsFridays(year: Int, startMonthIndex: Int): List<MonthFriday
         }
         val shortLabel = "${MONTH_NAMES_SHORT[mIdx]}'${y % 100}"
         val banglaName = MONTH_NAMES_BANGLA[mIdx]
-        val fridays = calculateFridaysForMonth(y, mIdx)
+        val fridays = calculateFridaysForMonth(y, mIdx, overrides)
         groups.add(
             MonthFridaysGroup(
                 monthIndex = mIdx,
@@ -173,6 +234,30 @@ fun calculateTwoMonthsFridays(year: Int, startMonthIndex: Int): List<MonthFriday
     return groups
 }
 
+fun fridayWeekWindowStart(centerMillis: Long): Long {
+    val cal = Calendar.getInstance().apply {
+        timeInMillis = centerMillis
+        add(Calendar.DAY_OF_MONTH, -3)
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    return cal.timeInMillis
+}
+
+fun fridayWeekWindowEnd(centerMillis: Long): Long {
+    val cal = Calendar.getInstance().apply {
+        timeInMillis = centerMillis
+        add(Calendar.DAY_OF_MONTH, 3)
+        set(Calendar.HOUR_OF_DAY, 23)
+        set(Calendar.MINUTE, 59)
+        set(Calendar.SECOND, 59)
+        set(Calendar.MILLISECOND, 999)
+    }
+    return cal.timeInMillis
+}
+
 /**
  * FULL PAGE Weekly Collection Screen (সাপ্তাহিক খাতা / শীট)
  * As requested: "weekly collection page ta full page hobe"
@@ -181,10 +266,9 @@ fun calculateTwoMonthsFridays(year: Int, startMonthIndex: Int): List<MonthFriday
 @Composable
 fun WeeklyCollectionScreen(
     currentUser: User,
-    viewModel: SamitiViewModel,
-    initiallyOpenAddPopup: Boolean = false,
-    onPopupDismissed: () -> Unit = {}
+    viewModel: SamitiViewModel
 ) {
+    val context = LocalContext.current
     val currentCal = remember { Calendar.getInstance() }
     var selectedYear by remember { mutableIntStateOf(currentCal.get(Calendar.YEAR)) }
     var selectedMonthIndex by remember { mutableIntStateOf(currentCal.get(Calendar.MONTH)) }
@@ -195,17 +279,15 @@ fun WeeklyCollectionScreen(
     val activeLoans by viewModel.activeLoans.collectAsState()
     val installmentsList by viewModel.installmentsList.collectAsState()
 
-    var showAddBatchCollectionPopup by remember { mutableStateOf(initiallyOpenAddPopup) }
-    var showSingleCellDialog by remember { mutableStateOf<Pair<Member, FridayDateInfo>?>(null) }
-
-    LaunchedEffect(initiallyOpenAddPopup) {
-        if (initiallyOpenAddPopup) {
-            showAddBatchCollectionPopup = true
-        }
+    var customDateOverrides by remember {
+        mutableStateOf(WeeklyCollectionDatePrefs.loadAllOverrides(context))
     }
+    var showSingleCellDialog by remember { mutableStateOf<Pair<Member, FridayDateInfo>?>(null) }
+    var showWeeklyDateUpdateDialog by remember { mutableStateOf(false) }
+    var preselectedWeekForDateUpdate by remember { mutableStateOf<FridayDateInfo?>(null) }
 
-    val twoMonthsGroups = remember(selectedYear, selectedMonthIndex) {
-        calculateTwoMonthsFridays(selectedYear, selectedMonthIndex)
+    val twoMonthsGroups = remember(selectedYear, selectedMonthIndex, customDateOverrides) {
+        calculateTwoMonthsFridays(selectedYear, selectedMonthIndex, customDateOverrides)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -227,42 +309,62 @@ fun WeeklyCollectionScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
                             Text(
                                 text = "Weekly Collection",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = Color(0xFF1B7A49)
+                                color = Color(0xFF1B7A49),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
                                 color = Color(0xFFE8F8EE),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1B7A49).copy(alpha = 0.4f))
+                                border = BorderStroke(1.dp, Color(0xFF1B7A49).copy(alpha = 0.4f))
                             ) {
                                 Text(
                                     text = "${twoMonthsGroups.firstOrNull()?.monthLabelShort ?: ""} ও ${twoMonthsGroups.getOrNull(1)?.monthLabelShort ?: ""}",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF1B7A49),
+                                    maxLines = 1,
+                                    softWrap = false,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
                         }
 
-                        // "+ কালেকশন" Button
-                        Button(
-                            onClick = { showAddBatchCollectionPopup = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B7A49)),
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        OutlinedButton(
+                            onClick = {
+                                preselectedWeekForDateUpdate = null
+                                showWeeklyDateUpdateDialog = true
+                            },
                             shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                            modifier = Modifier.testTag("btn_add_weekly_collection_top")
+                            border = BorderStroke(1.2.dp, Color(0xFF1565C0)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("btn_weekly_update_date")
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(
+                                imageVector = Icons.Default.EditCalendar,
+                                contentDescription = "তারিখ আপডেট",
+                                tint = Color(0xFF1565C0),
+                                modifier = Modifier.size(16.dp)
+                            )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "কালেকশন",
+                                text = "তারিখ আপডেট",
+                                style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1565C0),
                                 maxLines = 1,
                                 softWrap = false,
                                 overflow = TextOverflow.Ellipsis
@@ -364,73 +466,46 @@ fun WeeklyCollectionScreen(
                     members = members,
                     savingsList = savingsList,
                     installmentsList = installmentsList,
+                    onHeaderDateClick = { friday ->
+                        preselectedWeekForDateUpdate = friday
+                        showWeeklyDateUpdateDialog = true
+                    },
                     onCellClick = { member, friday ->
                         showSingleCellDialog = Pair(member, friday)
-                    },
-                    onAddCollectionClick = {
-                        showAddBatchCollectionPopup = true
                     }
                 )
             }
         }
-
-        // Floating Action Button to Add Weekly Collection
-        FloatingActionButton(
-            onClick = { showAddBatchCollectionPopup = true },
-            containerColor = Color(0xFF1B7A49),
-            contentColor = Color.White,
-            shape = CircleShape,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = 16.dp, end = 16.dp)
-                .shadow(6.dp, CircleShape)
-                .testTag("fab_add_weekly_collection")
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add Collection", modifier = Modifier.size(22.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("কালেকশন যোগ", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            }
-        }
     }
 
-    // Modal 1: "+ menur sob option remove koro" - Clean & simple popup without extra option buttons!
-    if (showAddBatchCollectionPopup) {
-        BatchWeeklyCollectionDialog(
-            members = members,
-            monthGroups = twoMonthsGroups,
-            currentUser = currentUser,
-            onDismiss = {
-                showAddBatchCollectionPopup = false
-                onPopupDismissed()
-            },
-            onSaveCollections = { collectionsList, selectedFriday ->
-                viewModel.batchRecordWeeklyCollections(
-                    collections = collectionsList,
-                    fridayDateMillis = selectedFriday.dateMillis,
-                    fridayLabel = selectedFriday.displayLabel,
-                    collectedBy = currentUser.fullName,
-                    role = currentUser.role,
-                    onComplete = {
-                        showAddBatchCollectionPopup = false
-                        onPopupDismissed()
-                    }
-                )
-            }
-        )
-    }
-
-    // Modal 2: Single Cell Collection Dialog
+    // Modal 2: Single Cell Collection Dialog (also supports updating existing cell entry dates)
     showSingleCellDialog?.let { (member, friday) ->
         val memberActiveLoan = activeLoans.firstOrNull { it.memberId == member.id }
+        val windowStart = fridayWeekWindowStart(friday.dateMillis)
+        val windowEnd = fridayWeekWindowEnd(friday.dateMillis)
+        val existingCellSavings = remember(savingsList, member.id, windowStart, windowEnd) {
+            savingsList.filter {
+                it.memberId == member.id && it.date in windowStart..windowEnd && it.type == "DEPOSIT"
+            }
+        }
+        val existingCellInstallments = remember(installmentsList, member.id, windowStart, windowEnd) {
+            installmentsList.filter {
+                it.memberId == member.id && it.paymentDate in windowStart..windowEnd
+            }
+        }
         RecordFridayCollectionDialog(
             member = member,
             friday = friday,
             activeLoan = memberActiveLoan,
             currentUser = currentUser,
+            existingSavings = existingCellSavings,
+            existingInstallments = existingCellInstallments,
+            onUpdateSavingsDate = { tx, newMillis ->
+                viewModel.updateSavingsTransactionDate(tx, newMillis)
+            },
+            onUpdateInstallmentDate = { pay, newMillis ->
+                viewModel.updateInstallmentPaymentDate(pay, newMillis)
+            },
             onDismiss = { showSingleCellDialog = null },
             onSubmit = { savingsAmount, loanAmount, penalty, _, selectedDateMillis, selectedDateLabel ->
                 viewModel.recordFridayCellCollection(
@@ -447,6 +522,64 @@ fun WeeklyCollectionScreen(
                         showSingleCellDialog = null
                     }
                 )
+            }
+        )
+    }
+
+    // Modal 3: Weekly Collection Page Date Update Dialog (header column date + entry dates)
+    if (showWeeklyDateUpdateDialog) {
+        WeeklyDateUpdateDialog(
+            monthGroups = twoMonthsGroups,
+            initialWeek = preselectedWeekForDateUpdate,
+            savingsList = savingsList,
+            installmentsList = installmentsList,
+            onApplyWeekColumnDate = { targetWeek, newMillis ->
+                val windowStart = fridayWeekWindowStart(targetWeek.dateMillis)
+                val windowEnd = fridayWeekWindowEnd(targetWeek.dateMillis)
+                val matchingSavings = savingsList.filter {
+                    it.date in windowStart..windowEnd && it.type == "DEPOSIT"
+                }
+                val matchingInstallments = installmentsList.filter {
+                    it.paymentDate in windowStart..windowEnd
+                }
+                if (targetWeek.columnKey.isNotBlank()) {
+                    WeeklyCollectionDatePrefs.saveOverride(context, targetWeek.columnKey, newMillis)
+                    customDateOverrides = WeeklyCollectionDatePrefs.loadAllOverrides(context)
+                }
+                viewModel.updateWeeklyEntriesDate(
+                    savingsTransactions = matchingSavings,
+                    installmentPayments = matchingInstallments,
+                    newDateMillis = newMillis
+                )
+            },
+            onResetWeekColumnDate = { targetWeek ->
+                val windowStart = fridayWeekWindowStart(targetWeek.dateMillis)
+                val windowEnd = fridayWeekWindowEnd(targetWeek.dateMillis)
+                val matchingSavings = savingsList.filter {
+                    it.date in windowStart..windowEnd && it.type == "DEPOSIT"
+                }
+                val matchingInstallments = installmentsList.filter {
+                    it.paymentDate in windowStart..windowEnd
+                }
+                if (targetWeek.columnKey.isNotBlank()) {
+                    WeeklyCollectionDatePrefs.clearOverride(context, targetWeek.columnKey)
+                    customDateOverrides = WeeklyCollectionDatePrefs.loadAllOverrides(context)
+                }
+                viewModel.updateWeeklyEntriesDate(
+                    savingsTransactions = matchingSavings,
+                    installmentPayments = matchingInstallments,
+                    newDateMillis = targetWeek.defaultDateMillis
+                )
+            },
+            onUpdateSingleSavingsDate = { tx, newMillis ->
+                viewModel.updateSavingsTransactionDate(tx, newMillis)
+            },
+            onUpdateSingleInstallmentDate = { pay, newMillis ->
+                viewModel.updateInstallmentPaymentDate(pay, newMillis)
+            },
+            onDismiss = {
+                showWeeklyDateUpdateDialog = false
+                preselectedWeekForDateUpdate = null
             }
         )
     }
@@ -467,8 +600,8 @@ fun FullPageWeeklyCollectionTableView(
     members: List<Member>,
     savingsList: List<SavingsTransaction>,
     installmentsList: List<com.example.data.model.InstallmentPayment>,
-    onCellClick: (Member, FridayDateInfo) -> Unit,
-    onAddCollectionClick: () -> Unit
+    onHeaderDateClick: (FridayDateInfo) -> Unit = {},
+    onCellClick: (Member, FridayDateInfo) -> Unit
 ) {
     val allFridays = remember(monthGroups) {
         monthGroups.flatMap { it.fridays }
@@ -504,19 +637,10 @@ fun FullPageWeeklyCollectionTableView(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "সদস্য তালিকা ও কালেকশন এন্ট্রি করতে নিচের বাটনে চাপ দিন",
+                    text = "নতুন সদস্য যোগ করতে উপরের + আইকনে চাপ দিন",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF4B5563)
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = onAddCollectionClick,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B7A49))
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("+ সাপ্তাহিক কালেকশন যোগ করুন")
-                }
             }
         }
         return
@@ -594,7 +718,7 @@ fun FullPageWeeklyCollectionTableView(
             Row(
                 modifier = Modifier
                     .width(totalTableWidth)
-                    .height(36.dp)
+                    .height(48.dp)
             ) {
                 // SL Header
                 Box(
@@ -621,23 +745,39 @@ fun FullPageWeeklyCollectionTableView(
                     Text(text = "Name", fontWeight = FontWeight.ExtraBold, fontSize = 13.5.sp, color = Color(0xFF0F172A))
                 }
 
-                // Friday Date Headers (e.g. 6.11.26, 13.11.26...)
+                // Friday Date Headers (clickable to update date directly from table)
                 allFridays.forEach { fDate ->
                     Box(
                         modifier = Modifier
                             .width(dateColWidth)
                             .fillMaxHeight()
-                            .background(Color(0xFFEBF3EE))
-                            .border(1.dp, borderColor),
+                            .background(if (fDate.isCustomDate) Color(0xFFDBEAFE) else Color(0xFFEBF3EE))
+                            .border(1.dp, borderColor)
+                            .clickable { onHeaderDateClick(fDate) }
+                            .testTag("btn_edit_week_date_${fDate.columnKey}"),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = fDate.shortDateString,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 13.sp,
-                            color = Color(0xFF0F172A),
-                            textAlign = TextAlign.Center
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(horizontal = 3.dp)
+                        ) {
+                            Text(
+                                text = fDate.shortDateString,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 12.5.sp,
+                                color = if (fDate.isCustomDate) Color(0xFF1D4ED8) else Color(0xFF0F172A),
+                                textAlign = TextAlign.Center,
+                                maxLines = 1
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Icon(
+                                imageVector = Icons.Default.EditCalendar,
+                                contentDescription = "তারিখ আপডেট",
+                                tint = Color(0xFF1565C0),
+                                modifier = Modifier.size(11.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -694,8 +834,8 @@ fun FullPageWeeklyCollectionTableView(
 
                         // Friday Date Amount Cells
                         allFridays.forEach { fDate ->
-                            val windowStart = fDate.dateMillis - 86400000L * 3
-                            val windowEnd = fDate.dateMillis + 86400000L * 3
+                            val windowStart = fridayWeekWindowStart(fDate.dateMillis)
+                            val windowEnd = fridayWeekWindowEnd(fDate.dateMillis)
 
                             val memberSavings = savingsList.filter {
                                 it.memberId == member.id && it.date in windowStart..windowEnd && it.type == "DEPOSIT"
@@ -762,8 +902,8 @@ fun FullPageWeeklyCollectionTableView(
 
                 // Column Totals for Each Friday
                 allFridays.forEach { fDate ->
-                    val windowStart = fDate.dateMillis - 86400000L * 3
-                    val windowEnd = fDate.dateMillis + 86400000L * 3
+                    val windowStart = fridayWeekWindowStart(fDate.dateMillis)
+                    val windowEnd = fridayWeekWindowEnd(fDate.dateMillis)
 
                     val totalColSavings = savingsList.filter {
                         it.date in windowStart..windowEnd && it.type == "DEPOSIT"
@@ -795,360 +935,16 @@ fun FullPageWeeklyCollectionTableView(
     }
 }
 
-/**
- * CLEAN BATCH POPUP: "+ menur sob option remove koro"
- * All extra option buttons (default amount chips, filters, etc.) have been removed!
- * Shows pure Friday date selection and clean member list with amount input!
- */
-@Composable
-fun BatchWeeklyCollectionDialog(
-    members: List<Member>,
-    monthGroups: List<MonthFridaysGroup>,
-    currentUser: User,
-    onDismiss: () -> Unit,
-    onSaveCollections: (List<Pair<Member, Double>>, FridayDateInfo) -> Unit
-) {
-    val allFridays = remember(monthGroups) {
-        monthGroups.flatMap { it.fridays }
-    }
-
-    val defaultFridayIndex = remember(allFridays) {
-        val now = System.currentTimeMillis()
-        allFridays.indices.minByOrNull { idx -> kotlin.math.abs(allFridays[idx].dateMillis - now) } ?: 0
-    }
-    var selectedFridayIndex by remember(allFridays) { mutableIntStateOf(defaultFridayIndex) }
-    var customDateOverrideMillis by remember { mutableStateOf<Long?>(null) }
-    val currentSelectedFriday = allFridays.getOrNull(selectedFridayIndex) ?: allFridays.firstOrNull()
-    val effectiveDateMillis = customDateOverrideMillis ?: currentSelectedFriday?.dateMillis ?: System.currentTimeMillis()
-    val effectiveFridayInfo = remember(currentSelectedFriday, customDateOverrideMillis) {
-        val overrideMillis = customDateOverrideMillis
-        if (overrideMillis != null) {
-            val cal = Calendar.getInstance().apply { timeInMillis = overrideMillis }
-            val day = cal.get(Calendar.DAY_OF_MONTH)
-            val month = cal.get(Calendar.MONTH) + 1
-            val year = cal.get(Calendar.YEAR)
-            FridayDateInfo(
-                weekIndex = 0,
-                dayOfMonth = day,
-                dateMillis = overrideMillis,
-                displayLabel = SamitiDateUtils.formatDateDisplay(overrideMillis),
-                fullDateString = SamitiDateUtils.formatShortDate(overrideMillis),
-                shortDateString = "$day.$month.${year % 100}"
-            )
-        } else {
-            currentSelectedFriday
-        }
-    }
-
-    // Member ID -> Amount text map (defaults to 100 as in user's image)
-    val amountMap = remember {
-        mutableStateMapOf<Long, String>().apply {
-            members.forEach { m ->
-                put(m.id, "100")
-            }
-        }
-    }
-
-    val enteredCount = members.count { (amountMap[it.id]?.toDoubleOrNull() ?: 0.0) > 0.0 }
-    val totalEnteredAmount = members.sumOf { amountMap[it.id]?.toDoubleOrNull() ?: 0.0 }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF0A6C3C)),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-                .testTag("dialog_batch_weekly_collection")
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                // Header: Clean and focused
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFE8F8EE)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = null, tint = Color(0xFF1B7A49), modifier = Modifier.size(20.dp))
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "Weekly Collection এন্ট্রি",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color(0xFF1B7A49)
-                            )
-                            Text(
-                                text = "সদস্য তালিকা অনুযায়ী কালেকশন",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF4B5563)
-                            )
-                        }
-                    }
-
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF1F2937))
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-                HorizontalDivider(color = Color(0xFFE5E7EB))
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Select Friday Date
-                Text(
-                    text = "শুক্রবার তারিখ নির্বাচন করুন:",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color(0xFF111827)
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    allFridays.forEachIndexed { idx, fDate ->
-                        val isSelected = customDateOverrideMillis == null && selectedFridayIndex == idx
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isSelected) Color(0xFF1976D2) else Color(0xFFF3F4F6),
-                            border = androidx.compose.foundation.BorderStroke(1.2.dp, if (isSelected) Color(0xFF0D47A1) else Color(0xFFD1D5DB)),
-                            modifier = Modifier.clickable {
-                                selectedFridayIndex = idx
-                                customDateOverrideMillis = null
-                            }
-                        ) {
-                            Text(
-                                text = "${fDate.shortDateString} (${fDate.weekIndex}ম শুক্র)",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = if (isSelected) Color.White else Color(0xFF111827),
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                DatePickerField(
-                    label = "অথবা কাস্টম তারিখ নির্বাচন করুন",
-                    selectedDateMillis = effectiveDateMillis,
-                    onDateSelected = { pickedMillis -> customDateOverrideMillis = pickedMillis },
-                    testTag = "btn_pick_batch_collection_date",
-                    accentColor = Color(0xFF1B7A49)
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Member List: Clean, direct list without extra option menus!
-                if (members.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(150.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("কোন সদস্য পাওয়া যায়নি", color = Color(0xFF4B5563), fontWeight = FontWeight.Bold)
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(290.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        itemsIndexed(members) { idx, member ->
-                            val currentVal = amountMap[member.id] ?: ""
-                            val isAmountEntered = (currentVal.toDoubleOrNull() ?: 0.0) > 0.0
-
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (isAmountEntered) Color(0xFFF0FDF4) else Color(0xFFF9FAFB),
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.2.dp,
-                                    if (isAmountEntered) Color(0xFF86EFAC) else Color(0xFFE5E7EB)
-                                ),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    // Member Info
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = if (isAmountEntered) Color(0xFF1B7A49) else Color(0xFF9CA3AF),
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Text(
-                                                    text = "${idx + 1}",
-                                                    color = Color.White,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-
-                                        Spacer(modifier = Modifier.width(8.dp))
-
-                                        Column {
-                                            Text(
-                                                text = member.name,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                color = Color(0xFF111827),
-                                                maxLines = 1
-                                            )
-                                            Text(
-                                                text = "হিসাব নং: ${member.memberCode}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = Color(0xFF4B5563)
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.width(8.dp))
-
-                                    // Amount Input Box
-                                    OutlinedTextField(
-                                        value = currentVal,
-                                        onValueChange = { amountMap[member.id] = it },
-                                        placeholder = { Text("0") },
-                                        prefix = { Text("৳", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF111827)) },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier
-                                            .width(96.dp)
-                                            .height(48.dp)
-                                            .testTag("input_collection_${member.id}")
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-                HorizontalDivider(color = Color(0xFFE5E7EB))
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Bottom Summary Bar & Full-Width Action Buttons
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "মোট সদস্য: $enteredCount জন",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF4B5563)
-                        )
-                        Text(
-                            text = "সর্বমোট: ৳${totalEnteredAmount.toInt()}",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color(0xFF1B7A49)
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onDismiss,
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                            modifier = Modifier.weight(0.8f)
-                        ) {
-                            Text(
-                                text = "বাতিল",
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF374151),
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        Button(
-                            onClick = {
-                                if (effectiveFridayInfo != null) {
-                                    val toSave = members.mapNotNull { m ->
-                                        val amt = amountMap[m.id]?.toDoubleOrNull() ?: 0.0
-                                        if (amt > 0.0) Pair(m, amt) else null
-                                    }
-                                    onSaveCollections(toSave, effectiveFridayInfo)
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B7A49)),
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                            modifier = Modifier
-                                .weight(1.2f)
-                                .testTag("btn_save_batch_weekly_collection")
-                        ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "সংরক্ষণ করুন",
-                                fontWeight = FontWeight.ExtraBold,
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 @Composable
 fun RecordFridayCollectionDialog(
     member: Member,
     friday: FridayDateInfo,
     activeLoan: Loan?,
     currentUser: User,
+    existingSavings: List<SavingsTransaction> = emptyList(),
+    existingInstallments: List<InstallmentPayment> = emptyList(),
+    onUpdateSavingsDate: (SavingsTransaction, Long) -> Unit = { _, _ -> },
+    onUpdateInstallmentDate: (InstallmentPayment, Long) -> Unit = { _, _ -> },
     onDismiss: () -> Unit,
     onSubmit: (Double, Double, Double, String, Long, String) -> Unit
 ) {
@@ -1156,6 +952,8 @@ fun RecordFridayCollectionDialog(
     var loanAmountText by remember { mutableStateOf(if (activeLoan != null) "${activeLoan.perInstallmentAmount.toInt()}" else "0") }
     var penaltyText by remember { mutableStateOf("0") }
     var selectedDateMillis by remember(friday) { mutableStateOf(friday.dateMillis) }
+    var editingSavingsTx by remember { mutableStateOf<SavingsTransaction?>(null) }
+    var editingInstallmentPay by remember { mutableStateOf<InstallmentPayment?>(null) }
     val selectedDateLabel = remember(selectedDateMillis, friday) {
         if (SamitiDateUtils.isSameLocalDay(selectedDateMillis, friday.dateMillis)) {
             friday.displayLabel
@@ -1210,6 +1008,110 @@ fun RecordFridayCollectionDialog(
                 Spacer(modifier = Modifier.height(10.dp))
                 HorizontalDivider(color = Color(0xFFE5E7EB))
                 Spacer(modifier = Modifier.height(10.dp))
+
+                if (existingSavings.isNotEmpty() || existingInstallments.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFEFF6FF),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF93C5FD)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "এই সপ্তাহের এন্ট্রি (তারিখ আপডেট করুন)",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF1E3A8A)
+                            )
+                            existingSavings.forEach { tx ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "সঞ্চয়: ৳${tx.amount.toInt()} (${SamitiDateUtils.formatShortDate(tx.date)})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0F172A),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFFDBEAFE),
+                                        modifier = Modifier
+                                            .clickable { editingSavingsTx = tx }
+                                            .testTag("btn_update_weekly_savings_date_${tx.id}")
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.EditCalendar,
+                                                contentDescription = "তারিখ আপডেট",
+                                                tint = Color(0xFF1D4ED8),
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text(
+                                                text = "তারিখ আপডেট",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF1D4ED8)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            existingInstallments.forEach { pay ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "কিস্তি #${pay.installmentNumber}: ৳${pay.paidAmount.toInt()} (${SamitiDateUtils.formatShortDate(pay.paymentDate)})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0F172A),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFFDBEAFE),
+                                        modifier = Modifier
+                                            .clickable { editingInstallmentPay = pay }
+                                            .testTag("btn_update_weekly_inst_date_${pay.id}")
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.EditCalendar,
+                                                contentDescription = "তারিখ আপডেট",
+                                                tint = Color(0xFF1D4ED8),
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text(
+                                                text = "তারিখ আপডেট",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF1D4ED8)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
 
                 DatePickerField(
                     label = "কালেকশনের তারিখ",
@@ -1349,5 +1251,358 @@ fun RecordFridayCollectionDialog(
                 }
             }
         }
+    }
+
+    editingSavingsTx?.let { tx ->
+        SamitiDatePickerDialog(
+            initialDateMillis = tx.date,
+            title = "সঞ্চয় জমার তারিখ আপডেট করুন",
+            onDateSelected = { newMillis ->
+                onUpdateSavingsDate(tx, newMillis)
+                editingSavingsTx = null
+            },
+            onDismiss = { editingSavingsTx = null }
+        )
+    }
+
+    editingInstallmentPay?.let { pay ->
+        SamitiDatePickerDialog(
+            initialDateMillis = pay.paymentDate,
+            title = "কিস্তি আদায়ের তারিখ আপডেট করুন",
+            onDateSelected = { newMillis ->
+                onUpdateInstallmentDate(pay, newMillis)
+                editingInstallmentPay = null
+            },
+            onDismiss = { editingInstallmentPay = null }
+        )
+    }
+}
+
+@Composable
+fun WeeklyDateUpdateDialog(
+    monthGroups: List<MonthFridaysGroup>,
+    initialWeek: FridayDateInfo?,
+    savingsList: List<SavingsTransaction>,
+    installmentsList: List<InstallmentPayment>,
+    onApplyWeekColumnDate: (FridayDateInfo, Long) -> Unit,
+    onResetWeekColumnDate: (FridayDateInfo) -> Unit,
+    onUpdateSingleSavingsDate: (SavingsTransaction, Long) -> Unit,
+    onUpdateSingleInstallmentDate: (InstallmentPayment, Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val allFridays = remember(monthGroups) { monthGroups.flatMap { it.fridays } }
+    val defaultSelectedKey = remember(allFridays, initialWeek) {
+        initialWeek?.columnKey
+            ?: run {
+                val now = System.currentTimeMillis()
+                allFridays.minByOrNull { kotlin.math.abs(it.dateMillis - now) }?.columnKey
+            }
+            ?: ""
+    }
+    var selectedColumnKey by remember(defaultSelectedKey) { mutableStateOf(defaultSelectedKey) }
+    val selectedWeek = allFridays.firstOrNull { it.columnKey == selectedColumnKey } ?: allFridays.firstOrNull()
+
+    var pickedDateMillis by remember(selectedWeek?.columnKey, selectedWeek?.dateMillis) {
+        mutableStateOf(selectedWeek?.dateMillis ?: System.currentTimeMillis())
+    }
+    var editingSavingsTx by remember { mutableStateOf<SavingsTransaction?>(null) }
+    var editingInstallmentPay by remember { mutableStateOf<InstallmentPayment?>(null) }
+
+    val weekSavings = remember(selectedWeek, savingsList) {
+        if (selectedWeek == null) emptyList()
+        else {
+            val start = fridayWeekWindowStart(selectedWeek.dateMillis)
+            val end = fridayWeekWindowEnd(selectedWeek.dateMillis)
+            savingsList.filter { it.date in start..end && it.type == "DEPOSIT" }
+        }
+    }
+    val weekInstallments = remember(selectedWeek, installmentsList) {
+        if (selectedWeek == null) emptyList()
+        else {
+            val start = fridayWeekWindowStart(selectedWeek.dateMillis)
+            val end = fridayWeekWindowEnd(selectedWeek.dateMillis)
+            installmentsList.filter { it.paymentDate in start..end }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.2.dp, Color(0xFF1565C0)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .testTag("dialog_weekly_date_update")
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(18.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "সাপ্তাহিক তারিখ আপডেট",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF1565C0)
+                        )
+                        Text(
+                            text = "কলামের তারিখ বা সদস্যের এন্ট্রির তারিখ পরিবর্তন করুন",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF475569)
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Close")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                HorizontalDivider(color = Color(0xFFE2E8F0))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (allFridays.isNotEmpty()) {
+                    Text(
+                        text = "সপ্তাহ / কলাম নির্বাচন করুন:",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        allFridays.forEach { week ->
+                            val isSelected = selectedWeek?.columnKey == week.columnKey
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isSelected) Color(0xFF1565C0) else Color(0xFFF1F5F9),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isSelected) Color(0xFF1565C0) else Color(0xFFCBD5E1)
+                                ),
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .clickable { selectedColumnKey = week.columnKey }
+                                    .testTag("chip_update_week_${week.columnKey}")
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = week.shortDateString,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) Color.White else Color(0xFF0F172A)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                if (selectedWeek != null) {
+                    DatePickerField(
+                        label = "নতুন তারিখ (${selectedWeek.shortDateString} কলাম)",
+                        selectedDateMillis = pickedDateMillis,
+                        onDateSelected = { pickedDateMillis = it },
+                        testTag = "btn_pick_weekly_column_new_date",
+                        accentColor = Color(0xFF1565C0)
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = {
+                            onApplyWeekColumnDate(selectedWeek, pickedDateMillis)
+                            onDismiss()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("btn_apply_week_column_date")
+                    ) {
+                        Icon(Icons.Default.EditCalendar, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "কলাম ও এন্ট্রির তারিখ আপডেট করুন",
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    if (selectedWeek.isCustomDate) {
+                        TextButton(
+                            onClick = {
+                                onResetWeekColumnDate(selectedWeek)
+                                onDismiss()
+                            },
+                            modifier = Modifier
+                                .align(Alignment.End)
+                                .testTag("btn_reset_week_column_date")
+                        ) {
+                            Text("ডিফল্ট শুক্রবারে রিসেট করুন", color = Color(0xFFDC2626))
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(color = Color(0xFFE2E8F0))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "এই সপ্তাহের এন্ট্রিসমূহ (${weekSavings.size + weekInstallments.size} টি):",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF0F172A)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                if (weekSavings.isEmpty() && weekInstallments.isEmpty()) {
+                    Text(
+                        text = "এই সপ্তাহে কোনো সংগৃহীত এন্ট্রি নেই। উপরের বাটন থেকে কলামের তারিখ পরিবর্তন করতে পারবেন।",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF64748B)
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        weekSavings.forEach { tx ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFF0FDF4),
+                                border = BorderStroke(1.dp, Color(0xFF86EFAC)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "${tx.memberName} (সঞ্চয়: ৳${tx.amount.toInt()})",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF0F172A)
+                                        )
+                                        Text(
+                                            text = "বর্তমান তারিখ: ${SamitiDateUtils.formatShortDate(tx.date)}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color(0xFF475569)
+                                        )
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFFDBEAFE),
+                                        modifier = Modifier
+                                            .heightIn(min = 40.dp)
+                                            .clickable { editingSavingsTx = tx }
+                                            .testTag("btn_update_sheet_savings_date_${tx.id}")
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(Icons.Default.EditCalendar, contentDescription = null, tint = Color(0xFF1D4ED8), modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("তারিখ বদলান", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFF1D4ED8))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        weekInstallments.forEach { pay ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFFFFBEB),
+                                border = BorderStroke(1.dp, Color(0xFFFCD34D)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "${pay.memberName} (কিস্তি #${pay.installmentNumber}: ৳${pay.paidAmount.toInt()})",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF0F172A)
+                                        )
+                                        Text(
+                                            text = "বর্তমান তারিখ: ${SamitiDateUtils.formatShortDate(pay.paymentDate)}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color(0xFF475569)
+                                        )
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFFDBEAFE),
+                                        modifier = Modifier
+                                            .heightIn(min = 40.dp)
+                                            .clickable { editingInstallmentPay = pay }
+                                            .testTag("btn_update_sheet_inst_date_${pay.id}")
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(Icons.Default.EditCalendar, contentDescription = null, tint = Color(0xFF1D4ED8), modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("তারিখ বদলান", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFF1D4ED8))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    editingSavingsTx?.let { tx ->
+        SamitiDatePickerDialog(
+            initialDateMillis = tx.date,
+            title = "সঞ্চয় জমার তারিখ আপডেট করুন",
+            onDateSelected = { newMillis ->
+                onUpdateSingleSavingsDate(tx, newMillis)
+                editingSavingsTx = null
+            },
+            onDismiss = { editingSavingsTx = null }
+        )
+    }
+
+    editingInstallmentPay?.let { pay ->
+        SamitiDatePickerDialog(
+            initialDateMillis = pay.paymentDate,
+            title = "কিস্তি আদায়ের তারিখ আপডেট করুন",
+            onDateSelected = { newMillis ->
+                onUpdateSingleInstallmentDate(pay, newMillis)
+                editingInstallmentPay = null
+            },
+            onDismiss = { editingInstallmentPay = null }
+        )
     }
 }

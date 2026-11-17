@@ -152,7 +152,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val authViewModel = remember { AuthViewModel(repository, sessionPreferences) }
-                val samitiViewModel = remember { SamitiViewModel(repository) }
+                val samitiViewModel = remember { SamitiViewModel(repository, cloudAutoSyncManager) }
 
                 val authState by authViewModel.uiState.collectAsState()
                 val currentUser = authState.currentUser
@@ -285,7 +285,6 @@ fun MainAppScaffold(
     var openNewLoanDirectly by remember { mutableStateOf(false) }
     var openLoansSubTabDirectly by remember { mutableStateOf(false) }
     var openInstallmentDirectly by remember { mutableStateOf(false) }
-    var openWeeklyCollectionPopupDirectly by remember { mutableStateOf(false) }
 
     var pendingAppUpdate by remember { mutableStateOf<GitHubReleaseInfo?>(null) }
 
@@ -394,6 +393,32 @@ fun MainAppScaffold(
                         },
                         actions = {
                             IconButton(
+                                onClick = {
+                                    selectedTab = 1
+                                    openAddMemberDirectly = true
+                                },
+                                modifier = Modifier
+                                    .padding(end = 2.dp)
+                                    .testTag("btn_top_header_add")
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFD3F5E2))
+                                        .border(1.dp, Color(0xFF0A6C3C).copy(alpha = 0.35f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "নতুন সদস্য যোগ করুন",
+                                        tint = Color(0xFF0A6C3C),
+                                        modifier = Modifier.size(21.dp)
+                                    )
+                                }
+                            }
+
+                            IconButton(
                                 onClick = onLogout,
                                 modifier = Modifier
                                     .padding(end = 6.dp)
@@ -454,7 +479,6 @@ fun MainAppScaffold(
                                     .clip(RoundedCornerShape(14.dp))
                                     .clickable {
                                         selectedTab = index
-                                        openWeeklyCollectionPopupDirectly = true
                                     }
                                     .padding(vertical = 2.dp)
                                     .testTag("btn_center_weekly_collection"),
@@ -605,6 +629,7 @@ fun MainAppScaffold(
                     currentUser = currentUser,
                     viewModel = samitiViewModel,
                     showAddDialogInitially = openAddMemberDirectly,
+                    onConsumedAddDialogFlag = { openAddMemberDirectly = false },
                     onOpenDepositForMember = { member ->
                         memberForDeposit = member
                         selectedTab = 3
@@ -617,9 +642,7 @@ fun MainAppScaffold(
 
                 2 -> WeeklyCollectionScreen(
                     currentUser = currentUser,
-                    viewModel = samitiViewModel,
-                    initiallyOpenAddPopup = openWeeklyCollectionPopupDirectly,
-                    onPopupDismissed = { openWeeklyCollectionPopupDirectly = false }
+                    viewModel = samitiViewModel
                 )
 
                 3 -> SavingsAndLoansSubScreen(
@@ -662,7 +685,6 @@ fun MainAppScaffold(
     }
 
     // Reset one-time flags after consumption
-    if (openAddMemberDirectly) openAddMemberDirectly = false
     if (openDepositDirectly) openDepositDirectly = false
     if (openNewLoanDirectly) openNewLoanDirectly = false
     if (openInstallmentDirectly) openInstallmentDirectly = false

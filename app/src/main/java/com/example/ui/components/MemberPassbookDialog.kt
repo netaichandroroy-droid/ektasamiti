@@ -22,7 +22,6 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.AlertDialog
@@ -48,12 +47,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import coil.compose.AsyncImage
 import com.example.data.model.Member
 import com.example.data.model.UserRole
 import com.example.ui.viewmodel.SamitiViewModel
@@ -127,26 +124,17 @@ fun MemberPassbookDialog(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(56.dp)
+                            .size(52.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primaryContainer),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (!member.photoUri.isNullOrEmpty() && member.photoUri.startsWith("content://")) {
-                            AsyncImage(
-                                model = member.photoUri,
-                                contentDescription = member.name,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.size(56.dp).clip(CircleShape)
-                            )
-                        } else {
-                            Icon(
-                                imageVector = if (member.photoUri == "avatar_1" || member.photoUri == "avatar_4") Icons.Default.Face else Icons.Default.Person,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(32.dp)
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = member.name,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(30.dp)
+                        )
                     }
 
                     Spacer(modifier = Modifier.width(12.dp))

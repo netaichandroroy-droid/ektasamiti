@@ -236,60 +236,65 @@ fun SamitiDatePickerDialog(
     val initialUtc = remember(initialDateMillis) {
         SamitiDateUtils.localTimestampToUtcPickerMillis(initialDateMillis)
     }
-    val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialUtc)
 
-    DatePickerDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val selectedUtc = datePickerState.selectedDateMillis
-                    if (selectedUtc != null) {
-                        val localMillis = SamitiDateUtils.utcPickerMillisToLocalTimestamp(
-                            utcMillis = selectedUtc,
-                            preserveTimeFromMillis = initialDateMillis
-                        )
-                        onDateSelected(localMillis)
-                    } else {
-                        onDismiss()
-                    }
-                },
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
-            ) {
-                Text(
-                    text = "নির্বাচন করুন",
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Ellipsis
-                )
+    androidx.compose.runtime.key(initialUtc) {
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialUtc)
+
+        DatePickerDialog(
+            onDismissRequest = onDismiss,
+            modifier = Modifier.testTag("dialog_samiti_date_picker"),
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val selectedUtc = datePickerState.selectedDateMillis
+                        if (selectedUtc != null) {
+                            val localMillis = SamitiDateUtils.utcPickerMillisToLocalTimestamp(
+                                utcMillis = selectedUtc,
+                                preserveTimeFromMillis = initialDateMillis
+                            )
+                            onDateSelected(localMillis)
+                        } else {
+                            onDismiss()
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.testTag("btn_confirm_date_picker")
+                ) {
+                    Text(
+                        text = "নির্বাচন করুন",
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = onDismiss,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = "বাতিল",
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    text = "বাতিল",
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+        ) {
+            DatePicker(
+                state = datePickerState,
+                title = {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 24.dp, end = 12.dp, top = 16.dp)
+                    )
+                }
+            )
         }
-    ) {
-        DatePicker(
-            state = datePickerState,
-            title = {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(start = 24.dp, end = 12.dp, top = 16.dp)
-                )
-            }
-        )
     }
 }

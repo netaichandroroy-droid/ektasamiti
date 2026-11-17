@@ -36,7 +36,6 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditCalendar
-import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Paid
@@ -77,13 +76,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.example.data.model.Loan
 import com.example.data.model.LoanScheduleCalculator
 import com.example.data.model.Member
@@ -244,31 +241,18 @@ fun MemberDetailScreen(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(62.dp)
+                                    .size(56.dp)
                                     .clip(CircleShape)
                                     .background(Color(0xFFD1F4DE))
                                     .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (!liveMember.photoUri.isNullOrEmpty() && liveMember.photoUri.startsWith("content://")) {
-                                    AsyncImage(
-                                        model = liveMember.photoUri,
-                                        contentDescription = liveMember.name,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.size(62.dp).clip(CircleShape)
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = if (liveMember.photoUri == "avatar_1" || liveMember.photoUri == "avatar_4") {
-                                            Icons.Default.Face
-                                        } else {
-                                            Icons.Default.Person
-                                        },
-                                        contentDescription = liveMember.name,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(34.dp)
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = liveMember.name,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(32.dp)
+                                )
                             }
 
                             Spacer(modifier = Modifier.width(12.dp))
@@ -280,35 +264,53 @@ fun MemberDetailScreen(
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Color(0xFF111827)
                                 )
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.Badge,
-                                        contentDescription = null,
-                                        tint = Color(0xFF1D4ED8),
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "${liveMember.memberCode} • যোগদান: ${dateSdf.format(Date(liveMember.registrationDate))}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF374151),
-                                        modifier = Modifier.weight(1f, fill = false)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.Badge,
+                                            contentDescription = null,
+                                            tint = Color(0xFF1D4ED8),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            text = "SL: ${liveMember.memberCode}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = Color(0xFF1E3A8A)
+                                        )
+                                    }
                                     Surface(
-                                        shape = RoundedCornerShape(6.dp),
+                                        shape = RoundedCornerShape(8.dp),
                                         color = Color(0xFFE0F2FE),
+                                        border = BorderStroke(1.dp, Color(0xFF93C5FD)),
                                         modifier = Modifier
                                             .clickable { showEditRegDatePicker = true }
                                             .testTag("btn_detail_edit_member_reg_date")
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.EditCalendar,
-                                            contentDescription = "নিবন্ধনের তারিখ পরিবর্তন করুন",
-                                            tint = Color(0xFF1D4ED8),
-                                            modifier = Modifier.padding(4.dp).size(14.dp)
-                                        )
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.EditCalendar,
+                                                contentDescription = "নিবন্ধনের তারিখ পরিবর্তন করুন",
+                                                tint = Color(0xFF1D4ED8),
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "তারিখ: ${dateSdf.format(Date(liveMember.registrationDate))}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF1D4ED8),
+                                                maxLines = 1,
+                                                softWrap = false
+                                            )
+                                        }
                                     }
                                 }
                                 if (liveMember.nid.isNotBlank()) {
@@ -729,18 +731,33 @@ fun MemberDetailScreen(
                                             )
                                         }
                                         Surface(
-                                            shape = RoundedCornerShape(6.dp),
+                                            shape = RoundedCornerShape(8.dp),
                                             color = Color(0xFFE0F2FE),
+                                            border = BorderStroke(1.dp, Color(0xFF93C5FD)),
                                             modifier = Modifier
                                                 .clickable { loanToEditDate = loan }
                                                 .testTag("btn_detail_edit_loan_date_${loan.id}")
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.EditCalendar,
-                                                contentDescription = "ঋণ বিতরণের তারিখ পরিবর্তন",
-                                                tint = Color(0xFF1D4ED8),
-                                                modifier = Modifier.padding(4.dp).size(15.dp)
-                                            )
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.EditCalendar,
+                                                    contentDescription = "ঋণ বিতরণের তারিখ পরিবর্তন",
+                                                    tint = Color(0xFF1D4ED8),
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = "তারিখ",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF1D4ED8),
+                                                    maxLines = 1,
+                                                    softWrap = false
+                                                )
+                                            }
                                         }
                                     }
                                 }

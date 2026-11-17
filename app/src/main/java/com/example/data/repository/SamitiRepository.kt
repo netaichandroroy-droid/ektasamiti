@@ -85,10 +85,38 @@ class SamitiRepository(
 
     suspend fun getMemberById(id: Long): Member? = memberDao.getMemberById(id)
 
+    suspend fun getNextMemberCode(): String {
+        val allMembers = memberDao.getAllMembersList()
+        var candidateNum = extractNextSerialNumber(allMembers)
+        var candidate = formatSerialCode(candidateNum)
+        while (memberDao.getMemberByCode(candidate) != null) {
+            candidateNum++
+            candidate = formatSerialCode(candidateNum)
+        }
+        return candidate
+    }
+
     suspend fun addMember(member: Member): Long {
         val id = memberDao.insertMember(member)
         cloudAutoSyncManager?.pushMemberAsync(member.memberCode)
         return id
+    }
+
+    companion object {
+        fun extractNextSerialNumber(members: List<Member>): Int {
+            if (members.isEmpty()) return 1
+            val maxPureNumeric = members.mapNotNull { member ->
+                member.memberCode.trim().toIntOrNull()
+            }.maxOrNull() ?: 0
+            return maxOf(maxPureNumeric, members.size) + 1
+        }
+
+        fun formatSerialCode(serial: Int): String =
+            String.format(Locale.ENGLISH, "%02d", serial)
+
+        fun computeNextMemberCode(members: List<Member>): String {
+            return formatSerialCode(extractNextSerialNumber(members))
+        }
     }
 
     suspend fun updateMember(member: Member) {
@@ -115,6 +143,33 @@ class SamitiRepository(
 
     fun getSavingsForMember(memberId: Long): Flow<List<SavingsTransaction>> =
         savingsDao.getTransactionsForMemberFlow(memberId)
+
+    suspend fun hasWeeklyCollectionOnDate(memberId: Long, dateMillis: Long): Boolean {
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = dateMillis }
+        val targetYear = cal.get(java.util.Calendar.YEAR)
+        val targetDay = cal.get(java.util.Calendar.DAY_OF_YEAR)
+
+        val hasDepositOnDay = savingsDao.getAllTransactionsList().any { tx ->
+            if (tx.memberId != memberId || tx.type != "DEPOSIT" || tx.note == "প্রারম্ভিক সঞ্চয় জমা") {
+                false
+            } else {
+                val txCal = java.util.Calendar.getInstance().apply { timeInMillis = tx.date }
+                txCal.get(java.util.Calendar.YEAR) == targetYear &&
+                    txCal.get(java.util.Calendar.DAY_OF_YEAR) == targetDay
+            }
+        }
+        if (hasDepositOnDay) return true
+
+        return installmentDao.getAllPaymentsList().any { pay ->
+            if (pay.memberId != memberId) {
+                false
+            } else {
+                val payCal = java.util.Calendar.getInstance().apply { timeInMillis = pay.paymentDate }
+                payCal.get(java.util.Calendar.YEAR) == targetYear &&
+                    payCal.get(java.util.Calendar.DAY_OF_YEAR) == targetDay
+            }
+        }
+    }
 
     suspend fun recordSavingsDeposit(
         member: Member,
@@ -346,6 +401,7 @@ class SamitiRepository(
     suspend fun deleteInstallmentPayment(payment: InstallmentPayment, currentUserRole: UserRole): Boolean {
         if (currentUserRole != UserRole.ADMIN) return false
         installmentDao.deletePayment(payment)
+        cloudAutoSyncManager?.deleteInstallmentFromCloudAsync(payment.receiptNumber)
         return true
     }
 

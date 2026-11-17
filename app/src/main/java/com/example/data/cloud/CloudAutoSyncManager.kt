@@ -52,6 +52,10 @@ class CloudAutoSyncManager(
     private var activeUserId: String? = null
     private var listenerJobs: List<Job> = emptyList()
     private var networkCallbackRegistered = false
+    private var cachedCloudMembers: List<CloudMember> = emptyList()
+    private var cachedCloudSavings: List<CloudSavingsTransaction> = emptyList()
+    private var cachedCloudLoans: List<CloudLoan> = emptyList()
+    private var cachedCloudInstallments: List<CloudInstallmentPayment> = emptyList()
     private val connectivityManager =
         context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
 
@@ -117,6 +121,10 @@ class CloudAutoSyncManager(
         listenerJobs.forEach { it.cancel() }
         listenerJobs = emptyList()
         activeUserId = null
+        cachedCloudMembers = emptyList()
+        cachedCloudSavings = emptyList()
+        cachedCloudLoans = emptyList()
+        cachedCloudInstallments = emptyList()
         unregisterNetworkMonitor()
         _syncState.value = CloudSyncState(
             status = CloudSyncStatus.NEEDS_GOOGLE_SIGN_IN,
@@ -273,6 +281,19 @@ class CloudAutoSyncManager(
         }
     }
 
+    fun deleteInstallmentFromCloudAsync(receiptNumber: String) {
+        if (receiptNumber.isBlank()) return
+        if (activeUserId == null && currentFirebaseUid() == null) return
+        scope.launch {
+            try {
+                syncSource.deleteInstallmentPayment(receiptNumber)
+                markSyncedNow()
+            } catch (e: Exception) {
+                Log.w(TAG, "Cloud delete installment failed: ${e.message}")
+            }
+        }
+    }
+
     fun resyncMemberRegistrationDateAsync(memberCode: String) {
         if (activeUserId == null && currentFirebaseUid() == null) return
         scope.launch {
@@ -402,20 +423,8 @@ class CloudAutoSyncManager(
                 }
                 .collect { cloudMembers ->
                     reconcileMutex.withLock {
-                        val memberDao = database.memberDao()
-                        for (remote in cloudMembers) {
-                            if (remote.memberCode.isBlank()) continue
-                            val existing = memberDao.getMemberByCode(remote.memberCode)
-                            if (existing == null) {
-                                memberDao.insertMember(remote.toRoomMember())
-                            } else {
-                                val merged = remote.toRoomMember(existingLocalId = existing.id)
-                                if (merged != existing) {
-                                    memberDao.updateMember(merged)
-                                }
-                            }
-                        }
-                        markSyncedNow()
+                        cachedCloudMembers = cloudMembers
+                        reconcileAllFromCloudLocked()
                     }
                 }
         }
@@ -428,20 +437,8 @@ class CloudAutoSyncManager(
                 }
                 .collect { cloudSavings ->
                     reconcileMutex.withLock {
-                        val memberDao = database.memberDao()
-                        val savingsDao = database.savingsDao()
-                        for (remote in cloudSavings) {
-                            val receipt = remote.receiptNumber.ifBlank { remote.id }
-                            if (receipt.isBlank()) continue
-                            if (savingsDao.getTransactionByReceipt(receipt) == null) {
-                                val localMember = memberDao.getMemberByCode(remote.memberCode)
-                                val memberId = localMember?.id ?: continue
-                                savingsDao.insertTransaction(
-                                    remote.toRoomTransaction(resolvedMemberId = memberId)
-                                )
-                            }
-                        }
-                        markSyncedNow()
+                        cachedCloudSavings = cloudSavings
+                        reconcileAllFromCloudLocked()
                     }
                 }
         }
@@ -454,28 +451,8 @@ class CloudAutoSyncManager(
                 }
                 .collect { cloudLoans ->
                     reconcileMutex.withLock {
-                        val memberDao = database.memberDao()
-                        val loanDao = database.loanDao()
-                        for (remote in cloudLoans) {
-                            if (remote.memberCode.isBlank() || remote.disbursedDate <= 0L) continue
-                            val localMember = memberDao.getMemberByCode(remote.memberCode) ?: continue
-                            val existing = loanDao.getLoanByMemberCodeAndDate(
-                                remote.memberCode,
-                                remote.disbursedDate
-                            )
-                            if (existing == null) {
-                                loanDao.insertLoan(remote.toRoomLoan(resolvedMemberId = localMember.id))
-                            } else {
-                                val merged = remote.toRoomLoan(
-                                    resolvedMemberId = localMember.id,
-                                    existingLocalId = existing.id
-                                )
-                                if (merged != existing) {
-                                    loanDao.updateLoan(merged)
-                                }
-                            }
-                        }
-                        markSyncedNow()
+                        cachedCloudLoans = cloudLoans
+                        reconcileAllFromCloudLocked()
                     }
                 }
         }
@@ -488,32 +465,89 @@ class CloudAutoSyncManager(
                 }
                 .collect { cloudInstallments ->
                     reconcileMutex.withLock {
-                        val memberDao = database.memberDao()
-                        val loanDao = database.loanDao()
-                        val installmentDao = database.installmentDao()
-                        val allLoans = loanDao.getAllLoansList()
-                        for (remote in cloudInstallments) {
-                            val receipt = remote.receiptNumber.ifBlank { remote.id }
-                            if (receipt.isBlank()) continue
-                            if (installmentDao.getPaymentByReceipt(receipt) == null) {
-                                val localMember = memberDao.getMemberByCode(remote.memberCode) ?: continue
-                                val matchedLoan = allLoans.firstOrNull { loan ->
-                                    FirestoreDocIds.loanKey(loan.memberCode, loan.disbursedDate) == remote.loanKey
-                                } ?: allLoans.firstOrNull { it.memberCode == remote.memberCode } ?: continue
-                                installmentDao.insertPayment(
-                                    remote.toRoomPayment(
-                                        resolvedLoanId = matchedLoan.id,
-                                        resolvedMemberId = localMember.id
-                                    )
-                                )
-                            }
-                        }
-                        markSyncedNow()
+                        cachedCloudInstallments = cloudInstallments
+                        reconcileAllFromCloudLocked()
                     }
                 }
         }
 
         listenerJobs = listOf(membersJob, savingsJob, loansJob, installmentsJob)
+    }
+
+    /**
+     * Reconciles cloud collections in strict foreign-key dependency order:
+     * Members -> Loans -> Savings -> Installments
+     * so out-of-order Firestore snapshot arrivals never drop dependent records.
+     */
+    private suspend fun reconcileAllFromCloudLocked() {
+        val memberDao = database.memberDao()
+        val loanDao = database.loanDao()
+        val savingsDao = database.savingsDao()
+        val installmentDao = database.installmentDao()
+
+        for (remote in cachedCloudMembers) {
+            if (remote.memberCode.isBlank()) continue
+            val existing = memberDao.getMemberByCode(remote.memberCode)
+            if (existing == null) {
+                memberDao.insertMember(remote.toRoomMember())
+            } else {
+                val merged = remote.toRoomMember(existingLocalId = existing.id)
+                if (merged != existing) {
+                    memberDao.updateMember(merged)
+                }
+            }
+        }
+
+        for (remote in cachedCloudLoans) {
+            if (remote.memberCode.isBlank() || remote.disbursedDate <= 0L) continue
+            val localMember = memberDao.getMemberByCode(remote.memberCode) ?: continue
+            val existing = loanDao.getLoanByMemberCodeAndDate(
+                remote.memberCode,
+                remote.disbursedDate
+            )
+            if (existing == null) {
+                loanDao.insertLoan(remote.toRoomLoan(resolvedMemberId = localMember.id))
+            } else {
+                val merged = remote.toRoomLoan(
+                    resolvedMemberId = localMember.id,
+                    existingLocalId = existing.id
+                )
+                if (merged != existing) {
+                    loanDao.updateLoan(merged)
+                }
+            }
+        }
+
+        for (remote in cachedCloudSavings) {
+            val receipt = remote.receiptNumber.ifBlank { remote.id }
+            if (receipt.isBlank()) continue
+            if (savingsDao.getTransactionByReceipt(receipt) == null) {
+                val localMember = memberDao.getMemberByCode(remote.memberCode) ?: continue
+                savingsDao.insertTransaction(
+                    remote.toRoomTransaction(resolvedMemberId = localMember.id)
+                )
+            }
+        }
+
+        val allLoans = loanDao.getAllLoansList()
+        for (remote in cachedCloudInstallments) {
+            val receipt = remote.receiptNumber.ifBlank { remote.id }
+            if (receipt.isBlank()) continue
+            if (installmentDao.getPaymentByReceipt(receipt) == null) {
+                val localMember = memberDao.getMemberByCode(remote.memberCode) ?: continue
+                val matchedLoan = allLoans.firstOrNull { loan ->
+                    FirestoreDocIds.loanKey(loan.memberCode, loan.disbursedDate) == remote.loanKey
+                } ?: allLoans.firstOrNull { it.memberCode == remote.memberCode } ?: continue
+                installmentDao.insertPayment(
+                    remote.toRoomPayment(
+                        resolvedLoanId = matchedLoan.id,
+                        resolvedMemberId = localMember.id
+                    )
+                )
+            }
+        }
+
+        markSyncedNow()
     }
 
     private suspend fun countLocalRecords(): Int {

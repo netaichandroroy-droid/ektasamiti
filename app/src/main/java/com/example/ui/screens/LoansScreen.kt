@@ -13,10 +13,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -114,6 +116,7 @@ fun LoansScreen(
     val installmentsList by viewModel.installmentsList.collectAsState()
 
     var showNewLoanDialog by remember { mutableStateOf(showNewLoanInitially || preselectedMemberForLoan != null) }
+    var selectedMemberForNewLoan by remember { mutableStateOf(preselectedMemberForLoan) }
     var showCollectDialog by remember { mutableStateOf(showCollectInstallmentInitially) }
     var selectedLoanForCollection by remember { mutableStateOf<Loan?>(null) }
     var selectedLoanForSchedule by remember { mutableStateOf<Loan?>(null) }
@@ -124,6 +127,7 @@ fun LoansScreen(
 
     LaunchedEffect(showNewLoanInitially, preselectedMemberForLoan) {
         if (showNewLoanInitially || preselectedMemberForLoan != null) {
+            selectedMemberForNewLoan = preselectedMemberForLoan
             showNewLoanDialog = true
         }
     }
@@ -291,7 +295,10 @@ fun LoansScreen(
                     }
 
                     Button(
-                        onClick = { showNewLoanDialog = true },
+                        onClick = {
+                            selectedMemberForNewLoan = null
+                            showNewLoanDialog = true
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         shape = RoundedCornerShape(10.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
@@ -306,6 +313,71 @@ fun LoansScreen(
                             softWrap = false,
                             overflow = TextOverflow.Ellipsis
                         )
+                    }
+                }
+
+                if (members.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "নাম অনুযায়ী দ্রুত কিস্তি / ঋণ:",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("loans_quick_member_row")
+                    ) {
+                        items(members, key = { it.id }) { member ->
+                            val memberActiveLoan = activeLoans.firstOrNull {
+                                it.memberId == member.id || it.memberCode == member.memberCode
+                            }
+                            val hasLoan = memberActiveLoan != null
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (hasLoan) Color(0xFFFEF3C7) else Color(0xFFE0F2FE),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (hasLoan) Color(0xFFB57300).copy(alpha = 0.6f) else Color(0xFF1565C0).copy(alpha = 0.55f)
+                                ),
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .clickable {
+                                        if (memberActiveLoan != null) {
+                                            selectedLoanForCollection = memberActiveLoan
+                                            showCollectDialog = true
+                                        } else {
+                                            selectedMemberForNewLoan = member
+                                            showNewLoanDialog = true
+                                        }
+                                    }
+                                    .testTag("btn_loan_member_${member.memberCode}")
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "${member.memberCode}. ${member.name}",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (hasLoan) Color(0xFF78350F) else Color(0xFF1E3A8A),
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (hasLoan) "কিস্তি" else "ঋণ",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (hasLoan) Color(0xFFB57300) else Color(0xFF1565C0)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -586,7 +658,7 @@ fun LoansScreen(
     if (showNewLoanDialog) {
         NewLoanDisbursalDialog(
             members = members,
-            preselectedMember = preselectedMemberForLoan,
+            preselectedMember = selectedMemberForNewLoan,
             currentUser = currentUser,
             onDismiss = { showNewLoanDialog = false },
             onSubmit = { member, principal, rate, charge, installments, freq, purpose, disbursedDateMillis ->
@@ -726,26 +798,40 @@ fun LoanItemCard(
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "বিতরণ: ${dateSdf.format(Date(loan.disbursedDate))} • $freqText • সুদ: $rateText%",
+                            text = "$freqText • সুদ: $rateText%",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF1E40AF),
-                            modifier = Modifier.weight(1f, fill = false)
+                            color = Color(0xFF1E40AF)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
+                            shape = RoundedCornerShape(8.dp),
                             color = Color(0xFFDBEAFE),
+                            border = BorderStroke(1.dp, Color(0xFF93C5FD)),
                             modifier = Modifier
                                 .clickable { onEditDateClick() }
                                 .testTag("btn_edit_loan_date_${loan.id}")
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.EditCalendar,
-                                contentDescription = "বিতরণের তারিখ পরিবর্তন করুন",
-                                tint = Color(0xFF1E40AF),
-                                modifier = Modifier.padding(4.dp).size(14.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.EditCalendar,
+                                    contentDescription = "বিতরণের তারিখ পরিবর্তন করুন",
+                                    tint = Color(0xFF1E40AF),
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "বিতরণ: ${dateSdf.format(Date(loan.disbursedDate))}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1E40AF),
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
                     }
                 }
@@ -1232,6 +1318,54 @@ fun NewLoanDisbursalDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
+                if (members.isNotEmpty()) {
+                    Text(
+                        text = "নাম নির্বাচন করুন:",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(members, key = { it.id }) { m ->
+                            val isSelected = selectedMember?.id == m.id
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFFF1F5F9),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFFCBD5E1)
+                                ),
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .clickable {
+                                        selectedMember = m
+                                        error = null
+                                    }
+                                    .testTag("chip_loan_member_${m.memberCode}")
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "${m.memberCode}. ${m.name}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) Color.White else Color(0xFF0F172A),
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
                 // Member selection
                 ExposedDropdownMenuBox(
                     expanded = expanded,
@@ -1459,6 +1593,7 @@ fun NewLoanDisbursalDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                val loanSubmitLabel = selectedMember?.let { "${it.name} - ঋণ নিশ্চিত" } ?: "ঋণ নিশ্চিত করুন"
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1466,7 +1601,7 @@ fun NewLoanDisbursalDialog(
                     OutlinedButton(
                         onClick = onDismiss,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                        modifier = Modifier.weight(0.8f)
+                        modifier = Modifier.weight(0.65f)
                     ) {
                         Text(
                             text = "বাতিল",
@@ -1495,10 +1630,10 @@ fun NewLoanDisbursalDialog(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                        modifier = Modifier.weight(1.2f).testTag("btn_confirm_disburse_loan")
+                        modifier = Modifier.weight(1.35f).testTag("btn_confirm_disburse_loan")
                     ) {
                         Text(
-                            text = "ঋণ নিশ্চিত করুন",
+                            text = loanSubmitLabel,
                             maxLines = 1,
                             softWrap = false,
                             overflow = TextOverflow.Ellipsis
@@ -1571,6 +1706,53 @@ fun CollectInstallmentDialog(
                     }
                     return@Column
                 }
+
+                Text(
+                    text = "নাম নির্বাচন করুন:",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(activeLoans, key = { it.id }) { l ->
+                        val isSelected = selectedLoan?.id == l.id
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSelected) Color(0xFFB57300) else Color(0xFFF1F5F9),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isSelected) Color(0xFFB57300) else Color(0xFFCBD5E1)
+                            ),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .clickable {
+                                    selectedLoan = l
+                                    amountText = l.perInstallmentAmount.toInt().toString()
+                                    error = null
+                                }
+                                .testTag("chip_collect_loan_${l.memberCode}_${l.id}")
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = "${l.memberCode}. ${l.memberName}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) Color.White else Color(0xFF0F172A),
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
 
                 // Loan Dropdown
                 ExposedDropdownMenuBox(
@@ -1675,6 +1857,7 @@ fun CollectInstallmentDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                val collectSubmitLabel = selectedLoan?.let { "${it.memberName} - আদায় নিশ্চিত" } ?: "আদায় নিশ্চিত"
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1682,7 +1865,7 @@ fun CollectInstallmentDialog(
                     OutlinedButton(
                         onClick = onDismiss,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                        modifier = Modifier.weight(0.8f)
+                        modifier = Modifier.weight(0.65f)
                     ) {
                         Text(
                             text = "বাতিল",
@@ -1709,10 +1892,10 @@ fun CollectInstallmentDialog(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB57300)),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                        modifier = Modifier.weight(1.2f).testTag("btn_confirm_collect_installment")
+                        modifier = Modifier.weight(1.35f).testTag("btn_confirm_collect_installment")
                     ) {
                         Text(
-                            text = "আদায় নিশ্চিত",
+                            text = collectSubmitLabel,
                             maxLines = 1,
                             softWrap = false,
                             overflow = TextOverflow.Ellipsis
