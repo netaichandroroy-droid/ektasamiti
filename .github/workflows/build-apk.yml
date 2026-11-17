@@ -1,8 +1,13 @@
-name: Build Android APK
+name: Build Android APK & Publish Release
 
 on:
   push:
+    tags-ignore:
+      - 'v*'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -39,11 +44,25 @@ jobs:
           fi
 
       - name: Build Debug APK
-        run: gradle :app:assembleDebug --no-daemon
+        env:
+          APP_VERSION_NAME: "1.0.${{ github.run_number }}"
+        run: gradle :app:assembleDebug --no-daemon -PappVersionCode=${{ github.run_number }} -PappVersionName="1.0.${{ github.run_number }}" -PgithubRepo="${{ github.repository }}"
+
+      - name: Prepare Versioned APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk "EktaSamiti-v1.0.${{ github.run_number }}.apk"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: EktaSamiti-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: "EktaSamiti-v1.0.${{ github.run_number }}.apk"
           if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v1.0.${{ github.run_number }}"
+          name: "Ekta Samiti v1.0.${{ github.run_number }}"
+          body: "Automated APK build from push (${{ github.sha }}). Version Code: ${{ github.run_number }}."
+          files: "EktaSamiti-v1.0.${{ github.run_number }}.apk"
+          make_latest: true

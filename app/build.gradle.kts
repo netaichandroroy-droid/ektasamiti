@@ -13,12 +13,24 @@ android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
+  val ciVersionCode = providers.gradleProperty("appVersionCode")
+    .orElse(providers.environmentVariable("GITHUB_RUN_NUMBER"))
+    .map { it.toIntOrNull()?.coerceAtLeast(1) ?: 1 }
+    .getOrElse(1)
+  val ciVersionName = providers.gradleProperty("appVersionName")
+    .orElse(providers.environmentVariable("APP_VERSION_NAME"))
+    .getOrElse(if (ciVersionCode > 1) "1.0.$ciVersionCode" else "1.0")
+  val ciGithubRepo = providers.gradleProperty("githubRepo")
+    .orElse(providers.environmentVariable("GITHUB_REPOSITORY"))
+    .getOrElse("")
+
   defaultConfig {
     applicationId = "com.aistudio.ektasamiti.kpmrtq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = ciVersionCode
+    versionName = ciVersionName
+    buildConfigField("String", "GITHUB_REPOSITORY", "\"${ciGithubRepo.replace("\"", "")}\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

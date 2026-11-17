@@ -39,17 +39,20 @@ import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material.icons.filled.SupervisorAccount
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
@@ -76,6 +79,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -94,6 +98,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.BuildConfig
 import com.example.R
 import com.example.data.model.User
 import com.example.data.model.UserRole
@@ -101,11 +106,17 @@ import com.example.data.model.WeeklyChartAggregator
 import com.example.notifications.LoanReminderCalculator
 import com.example.notifications.LoanReminderNotificationHelper
 import com.example.notifications.LoanReminderPreferences
+import com.example.ui.components.AppUpdateAvailableDialog
 import com.example.ui.components.MonthlySummaryPreviewDialog
 import com.example.ui.components.WeeklyCollectionBarChartCard
 import com.example.ui.theme.SilverCardBg
 import com.example.ui.theme.SilverCardBorder
 import com.example.ui.viewmodel.SamitiViewModel
+import com.example.update.AppUpdatePreferences
+import com.example.update.GitHubReleaseInfo
+import com.example.update.GitHubUpdateChecker
+import com.example.update.UpdateCheckResult
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -117,6 +128,7 @@ fun SettingsScreen(
     onShowMessage: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val isAdmin = currentUser.role == UserRole.ADMIN
 
     val members by viewModel.members.collectAsState()
@@ -140,6 +152,12 @@ fun SettingsScreen(
     var showCollectorsList by remember { mutableStateOf(false) }
     var showAddCollectorDialog by remember { mutableStateOf(false) }
     var showResetConfirmDialog by remember { mutableStateOf(false) }
+
+    var autoUpdateEnabled by remember { mutableStateOf(AppUpdatePreferences.isAutoCheckEnabled(context)) }
+    var effectiveGithubRepo by remember { mutableStateOf(AppUpdatePreferences.resolveEffectiveRepository(context)) }
+    var showGithubRepoDialog by remember { mutableStateOf(false) }
+    var isCheckingUpdate by remember { mutableStateOf(false) }
+    var manualUpdateRelease by remember { mutableStateOf<GitHubReleaseInfo?>(null) }
 
     val upcomingCount = remember(loansList, reminderSettings.leadDays) {
         LoanReminderCalculator.findUpcomingWeeklyRepayments(
@@ -620,7 +638,120 @@ fun SettingsScreen(
             }
         }
 
-        // 5. About App Section List
+        // 5. GitHub App Auto-Update Section List
+        item {
+            SettingsSectionLabel(title = "অ্যাপ আপডেট (GitHub অটো-চেক)")
+            Spacer(modifier = Modifier.height(6.dp))
+            SettingsListGroupCard(testTag = "card_settings_app_update") {
+                SettingsOptionRow(
+                    icon = Icons.Default.SystemUpdate,
+                    iconBg = Color(0xFFD3F5E2),
+                    iconTint = Color(0xFF0A6C3C),
+                    title = "অটো আপডেট চেক",
+                    subtitle = if (autoUpdateEnabled) {
+                        "অ্যাপ চালু হলেই নতুন GitHub রিলিজ যাচাই হবে"
+                    } else {
+                        "স্বয়ংক্রিয় আপডেট যাচাই বন্ধ আছে"
+                    },
+                    onClick = {
+                        val next = !autoUpdateEnabled
+                        autoUpdateEnabled = next
+                        AppUpdatePreferences.setAutoCheckEnabled(context, next)
+                        onShowMessage(
+                            if (next) "অটো আপডেট চেক চালু করা হয়েছে" else "অটো আপডেট চেক বন্ধ করা হয়েছে"
+                        )
+                    },
+                    trailingContent = {
+                        Switch(
+                            checked = autoUpdateEnabled,
+                            onCheckedChange = { enabled ->
+                                autoUpdateEnabled = enabled
+                                AppUpdatePreferences.setAutoCheckEnabled(context, enabled)
+                                onShowMessage(
+                                    if (enabled) "অটো আপডেট চেক চালু করা হয়েছে" else "অটো আপডেট চেক বন্ধ করা হয়েছে"
+                                )
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF0A6C3C)
+                            ),
+                            modifier = Modifier.testTag("switch_settings_auto_update")
+                        )
+                    }
+                )
+
+                HorizontalDivider(color = SilverCardBorder)
+
+                SettingsOptionRow(
+                    icon = Icons.Default.Link,
+                    iconBg = Color(0xFFDBEAFE),
+                    iconTint = Color(0xFF1D4ED8),
+                    title = "GitHub রিপোজিটরি লিংক",
+                    subtitle = effectiveGithubRepo.ifBlank { "সেট করা নেই — ট্যাপ করে GitHub লিংক দিন" },
+                    onClick = { showGithubRepoDialog = true },
+                    trailingContent = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "রিপোজিটরি সম্পাদনা",
+                            tint = Color(0xFF475569)
+                        )
+                    },
+                    testTag = "row_settings_github_repo"
+                )
+
+                HorizontalDivider(color = SilverCardBorder)
+
+                SettingsOptionRow(
+                    icon = Icons.Default.Refresh,
+                    iconBg = Color(0xFFFEF3C7),
+                    iconTint = Color(0xFFD97706),
+                    title = if (isCheckingUpdate) "আপডেট যাচাই হচ্ছে..." else "এখনই আপডেট চেক করুন",
+                    subtitle = "বর্তমান: v${BuildConfig.VERSION_NAME} (বিল্ড ${BuildConfig.VERSION_CODE})",
+                    onClick = {
+                        if (!isCheckingUpdate) {
+                            isCheckingUpdate = true
+                            coroutineScope.launch {
+                                val result = GitHubUpdateChecker.checkForUpdate(context)
+                                isCheckingUpdate = false
+                                when (result) {
+                                    is UpdateCheckResult.UpdateAvailable -> {
+                                        manualUpdateRelease = result.release
+                                    }
+                                    is UpdateCheckResult.UpToDate -> {
+                                        onShowMessage("আপনি সর্বশেষ সংস্করণ (v${result.currentVersion}) ব্যবহার করছেন")
+                                    }
+                                    is UpdateCheckResult.RepoNotConfigured -> {
+                                        showGithubRepoDialog = true
+                                        onShowMessage("প্রথমে আপনার GitHub রিপোজিটরি (owner/repo) সেট করুন")
+                                    }
+                                    is UpdateCheckResult.Error -> {
+                                        onShowMessage(result.message)
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    trailingContent = {
+                        if (isCheckingUpdate) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = Color(0xFF0A6C3C)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = "আপডেট চেক করুন",
+                                tint = Color(0xFF475569)
+                            )
+                        }
+                    },
+                    testTag = "row_settings_check_update"
+                )
+            }
+        }
+
+        // 6. About App Section List
         item {
             SettingsSectionLabel(title = "অ্যাপ পরিচিতি")
             Spacer(modifier = Modifier.height(6.dp))
@@ -647,7 +778,7 @@ fun SettingsScreen(
                             color = Color(0xFF0F172A)
                         )
                         Text(
-                            text = "সংস্করণ ১.০ • সাপ্তাহিক সঞ্চয় ও ঋণ ব্যবস্থাপনা",
+                            text = "সংস্করণ ${BuildConfig.VERSION_NAME} (বিল্ড ${BuildConfig.VERSION_CODE}) • সাপ্তাহিক সঞ্চয় ও ঋণ ব্যবস্থাপনা",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFF475569)
                         )
@@ -696,6 +827,33 @@ fun SettingsScreen(
                     onSuccess = { showResetConfirmDialog = false },
                     onError = { errMsg -> onVerificationFailed(errMsg) }
                 )
+            }
+        )
+    }
+
+    if (showGithubRepoDialog) {
+        GithubRepositoryConfigDialog(
+            currentRepo = effectiveGithubRepo,
+            onDismiss = { showGithubRepoDialog = false },
+            onSave = { normalizedRepo ->
+                AppUpdatePreferences.saveCustomRepository(context, normalizedRepo)
+                effectiveGithubRepo = AppUpdatePreferences.resolveEffectiveRepository(context)
+                showGithubRepoDialog = false
+                onShowMessage("GitHub রিপোজিটরি সংরক্ষণ করা হয়েছে: $effectiveGithubRepo")
+            }
+        )
+    }
+
+    manualUpdateRelease?.let { release ->
+        AppUpdateAvailableDialog(
+            release = release,
+            onDismiss = { manualUpdateRelease = null },
+            onDownloadClick = { downloadUrl ->
+                val opened = GitHubUpdateChecker.openUpdateDownloadUrl(context, downloadUrl)
+                manualUpdateRelease = null
+                if (!opened) {
+                    onShowMessage("ডাউনলোড লিংক খোলা যায়নি, ব্রাউজার থেকে চেষ্টা করুন")
+                }
             }
         )
     }
@@ -1231,6 +1389,137 @@ fun ResetDataAdminAuthDialog(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun GithubRepositoryConfigDialog(
+    currentRepo: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var repoInput by remember { mutableStateOf(currentRepo) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .imePadding()
+                .testTag("dialog_github_repo_input")
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp)
+            ) {
+                Text(
+                    text = "GitHub রিপোজিটরি সেট করুন",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "আপনার GitHub রিপোজিটরির লিংক (https://github.com/user/repo) বা user/repo লিখুন। GitHub Actions থেকে নির্মিত অ্যাপে এটি স্বয়ংক্রিয়ভাবে যুক্ত থাকে।",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF475569)
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                OutlinedTextField(
+                    value = repoInput,
+                    onValueChange = {
+                        repoInput = it
+                        errorMessage = null
+                    },
+                    label = { Text("GitHub রিপোজিটরি (user/repo) *") },
+                    placeholder = { Text("https://github.com/username/ekta-samiti") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Link,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Done
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_github_repo")
+                )
+
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = errorMessage ?: "",
+                        color = Color(0xFFDC2626),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
+                        modifier = Modifier
+                            .weight(0.85f)
+                            .heightIn(min = 48.dp)
+                    ) {
+                        Text(
+                            text = "বাতিল",
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            val normalized = AppUpdatePreferences.normalizeGithubRepo(repoInput)
+                            if (normalized.isBlank()) {
+                                errorMessage = "সঠিক user/repo অথবা GitHub লিংক দিন"
+                                return@Button
+                            }
+                            onSave(normalized)
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF0A6C3C),
+                            contentColor = Color.White
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+                        modifier = Modifier
+                            .weight(1.15f)
+                            .heightIn(min = 48.dp)
+                            .testTag("btn_save_github_repo")
+                    ) {
+                        Text(
+                            text = "সংরক্ষণ করুন",
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }

@@ -99,8 +99,13 @@ import com.example.data.repository.SamitiRepository
 import com.example.notifications.LoanReminderCalculator
 import com.example.notifications.LoanReminderNotificationHelper
 import com.example.notifications.LoanReminderPreferences
+import com.example.ui.components.AppUpdateAvailableDialog
 import com.example.ui.components.ReceiptDialog
 import com.example.ui.components.SuccessPopupDialog
+import com.example.update.AppUpdatePreferences
+import com.example.update.GitHubReleaseInfo
+import com.example.update.GitHubUpdateChecker
+import com.example.update.UpdateCheckResult
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.LoginScreen
 import com.example.ui.screens.LoansScreen
@@ -282,12 +287,29 @@ fun MainAppScaffold(
     var openInstallmentDirectly by remember { mutableStateOf(false) }
     var openWeeklyCollectionPopupDirectly by remember { mutableStateOf(false) }
 
+    var pendingAppUpdate by remember { mutableStateOf<GitHubReleaseInfo?>(null) }
+
     // Route directly to Loans sub-tab when user taps a local reminder notification
     LaunchedEffect(openLoansFromNotification) {
         if (openLoansFromNotification) {
             selectedTab = 3
             openLoansSubTabDirectly = true
             onConsumedNotificationNavigation()
+        }
+    }
+
+    // Automatically check GitHub Releases for a newer APK build on startup
+    LaunchedEffect(Unit) {
+        if (AppUpdatePreferences.isAutoCheckEnabled(context)) {
+            when (val result = GitHubUpdateChecker.checkForUpdate(context)) {
+                is UpdateCheckResult.UpdateAvailable -> {
+                    val dismissedTag = AppUpdatePreferences.getDismissedTag(context)
+                    if (result.release.tagName != dismissedTag) {
+                        pendingAppUpdate = result.release
+                    }
+                }
+                else -> Unit
+            }
         }
     }
 
@@ -660,6 +682,26 @@ fun MainAppScaffold(
         SuccessPopupDialog(
             data = popupData,
             onDismiss = { samitiViewModel.dismissSuccessPopup() }
+        )
+    }
+
+    // Auto-detected GitHub Release App Update Modal
+    pendingAppUpdate?.let { release ->
+        AppUpdateAvailableDialog(
+            release = release,
+            onDismiss = {
+                AppUpdatePreferences.setDismissedTag(context, release.tagName)
+                pendingAppUpdate = null
+            },
+            onDownloadClick = { downloadUrl ->
+                val opened = GitHubUpdateChecker.openUpdateDownloadUrl(context, downloadUrl)
+                pendingAppUpdate = null
+                if (!opened) {
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar("ডাউনলোড লিংক খোলা যায়নি, ব্রাউজার থেকে চেষ্টা করুন")
+                    }
+                }
+            }
         )
     }
 }
