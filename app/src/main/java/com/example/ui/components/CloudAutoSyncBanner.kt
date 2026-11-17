@@ -63,7 +63,13 @@ fun CloudAutoSyncBanner(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val credentialManager = remember(context) { CredentialManager.create(context) }
+    val credentialManager = remember(context) {
+        try {
+            CredentialManager.create(context)
+        } catch (_: Throwable) {
+            null
+        }
+    }
     var isSigningIn by remember { mutableStateOf(false) }
 
     val timeText = remember(syncState.lastSyncedAtMillis) {
@@ -208,10 +214,15 @@ fun CloudAutoSyncBanner(
             if (syncState.status == CloudSyncStatus.NEEDS_GOOGLE_SIGN_IN) {
                 Button(
                     onClick = {
+                        val cm = credentialManager
+                        if (cm == null) {
+                            onFeedbackMessage("এই ডিভাইসে Google সাইন-ইন সেবা পাওয়া যায়নি")
+                            return@Button
+                        }
                         isSigningIn = true
                         GoogleAuthManager.onGoogleSignInClicked(
                             context = context,
-                            credentialManager = credentialManager,
+                            credentialManager = cm,
                             scope = scope,
                             onAuthSuccess = {
                                 isSigningIn = false

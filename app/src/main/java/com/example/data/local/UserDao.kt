@@ -20,6 +20,9 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE role = 'COLLECTOR' ORDER BY createdAt DESC")
     fun getAllCollectorsFlow(): Flow<List<User>>
 
+    @Query("SELECT * FROM users")
+    suspend fun getAllUsersList(): List<User>
+
     @Query("SELECT COUNT(*) FROM users")
     suspend fun countUsers(): Int
 

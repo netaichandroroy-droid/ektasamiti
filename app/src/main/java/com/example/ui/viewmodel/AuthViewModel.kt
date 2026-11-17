@@ -151,7 +151,7 @@ class AuthViewModel(
 
     fun quickLoginAs(role: UserRole) {
         if (role == UserRole.ADMIN) {
-            login("admin@ektasamiti.com", "admin123")
+            login("Nitai", "Nemai")
         } else {
             login("collector@ektasamiti.com", "123456")
         }

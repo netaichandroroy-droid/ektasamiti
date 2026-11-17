@@ -33,11 +33,16 @@ class SamitiRepository(
 
     // Auth
     suspend fun authenticate(email: String, password: String): User? {
-        val user = userDao.getUserByEmail(email.trim()) ?: return null
-        if (user.passwordHash == password.trim() && user.isActive) {
-            return user
+        val cleanId = email.trim()
+        val cleanPass = password.trim()
+        if (cleanId.isEmpty() || cleanPass.isEmpty()) return null
+        val exact = userDao.getUserByEmail(cleanId)
+        if (exact != null && exact.isActive && exact.passwordHash == cleanPass) {
+            return exact
         }
-        return null
+        return userDao.getAllUsersList().firstOrNull {
+            it.isActive && it.email.equals(cleanId, ignoreCase = true) && it.passwordHash == cleanPass
+        }
     }
 
     suspend fun getUserById(userId: Long): User? = userDao.getUserById(userId)
@@ -45,6 +50,20 @@ class SamitiRepository(
     suspend fun getUserByEmail(email: String): User? {
         val user = userDao.getUserByEmail(email.trim())
         return if (user?.isActive == true) user else null
+    }
+
+    suspend fun verifyAdminCredentials(email: String, password: String): Boolean {
+        val cleanEmail = email.trim()
+        val cleanPassword = password.trim()
+        if (cleanEmail.isEmpty() || cleanPassword.isEmpty()) return false
+        val exact = userDao.getUserByEmail(cleanEmail)
+        if (exact != null && exact.isActive && exact.role == UserRole.ADMIN && exact.passwordHash == cleanPassword) {
+            return true
+        }
+        val matched = userDao.getAllUsersList().firstOrNull {
+            it.isActive && it.role == UserRole.ADMIN && it.email.equals(cleanEmail, ignoreCase = true)
+        }
+        return matched != null && matched.passwordHash == cleanPassword
     }
 
     suspend fun registerUser(user: User): Long {

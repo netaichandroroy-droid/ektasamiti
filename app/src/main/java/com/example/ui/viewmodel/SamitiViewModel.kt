@@ -636,8 +636,44 @@ class SamitiViewModel(private val repository: SamitiRepository) : ViewModel() {
             .sumOf { it.paidAmount }
     }
 
-    // Reset / Clear all samiti members & transactions (Admin only)
-    fun clearAllSamitiData(role: com.example.data.model.UserRole, onComplete: () -> Unit) {
+    // Reset / Clear all samiti members & transactions (Admin only, requires Admin ID & password verification)
+    fun clearAllSamitiDataWithAdminAuth(
+        role: UserRole,
+        adminEmail: String,
+        adminPassword: String,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            if (role != UserRole.ADMIN) {
+                onError("নিরাপত্তা সতর্কতা: শুধুমাত্র অ্যাডমিন ডাটা রিসেট করতে পারবেন।")
+                return@launch
+            }
+            if (adminEmail.isBlank() || adminPassword.isBlank()) {
+                onError("ডাটা রিসেট করতে এডমিনের আইডি (ইমেইল) ও পাসওয়ার্ড দিন।")
+                return@launch
+            }
+            val verified = repository.verifyAdminCredentials(adminEmail, adminPassword)
+            if (!verified) {
+                onError("এডমিনের আইডি অথবা পাসওয়ার্ড সঠিক নয়!")
+                return@launch
+            }
+            val success = repository.clearAllSamitiData(role)
+            if (success) {
+                _snackbarMessage.value = "সকল সদস্য ও লেনদেনের ডাটা সম্পূর্ণ মুছে ফেলা হয়েছে"
+                _activeSuccessPopup.value = SuccessPopupData(
+                    title = "সকল ডাটা রিসেট সফল!",
+                    message = "এডমিন যাচাইকরণের পর সকল সদস্য, ঋণ, সঞ্চয় এবং কিস্তি আদায়ের তথ্য পরিষ্কার করা হয়েছে।"
+                )
+                onSuccess()
+            } else {
+                onError("ডাটা রিসেট করা যায়নি। আবার চেষ্টা করুন।")
+            }
+        }
+    }
+
+    // Legacy direct reset kept for internal/unit callers; UI uses clearAllSamitiDataWithAdminAuth
+    fun clearAllSamitiData(role: UserRole, onComplete: () -> Unit) {
         viewModelScope.launch {
             val success = repository.clearAllSamitiData(role)
             if (success) {

@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,6 +37,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NotificationsActive
@@ -47,15 +50,19 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material.icons.filled.SupervisorAccount
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -79,7 +86,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -676,33 +686,16 @@ fun SettingsScreen(
     }
 
     if (showResetConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showResetConfirmDialog = false },
-            title = { Text("সকল ডাটা মুছে ফেলার নিশ্চয়তা") },
-            text = {
-                Text("আপনি কি নিশ্চিত যে সকল সদস্য, ঋণ, সঞ্চয় ও কিস্তি আদায়ের ডাটা মুছে ফেলতে চান? এডমিন ও কালেক্টর লগইন অ্যাকাউন্ট অপরিবর্তিত থাকবে।")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.clearAllSamitiData(currentUser.role) {
-                            showResetConfirmDialog = false
-                        }
-                    }
-                ) {
-                    Text(
-                        text = "হ্যাঁ, সব মুছুন",
-                        color = MaterialTheme.colorScheme.error,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showResetConfirmDialog = false }) {
-                    Text("বাতিল", maxLines = 1, softWrap = false)
-                }
+        ResetDataAdminAuthDialog(
+            onDismiss = { showResetConfirmDialog = false },
+            onVerifyAndReset = { adminEmail, adminPassword, onVerificationFailed ->
+                viewModel.clearAllSamitiDataWithAdminAuth(
+                    role = currentUser.role,
+                    adminEmail = adminEmail,
+                    adminPassword = adminPassword,
+                    onSuccess = { showResetConfirmDialog = false },
+                    onError = { errMsg -> onVerificationFailed(errMsg) }
+                )
             }
         )
     }
@@ -1018,6 +1011,229 @@ private fun SettingsOptionRow(
         if (trailingContent != null) {
             Spacer(modifier = Modifier.width(8.dp))
             trailingContent()
+        }
+    }
+}
+
+@Composable
+fun ResetDataAdminAuthDialog(
+    onDismiss: () -> Unit,
+    onVerifyAndReset: (adminEmail: String, adminPassword: String, onError: (String) -> Unit) -> Unit
+) {
+    var adminEmail by remember { mutableStateOf("") }
+    var adminPassword by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isVerifying by remember { mutableStateOf(false) }
+
+    Dialog(
+        onDismissRequest = { if (!isVerifying) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.5.dp, Color(0xFFDC2626).copy(alpha = 0.45f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .imePadding()
+                .testTag("dialog_reset_data_admin_auth")
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFFEE2E2))
+                            .border(1.dp, Color(0xFFDC2626).copy(alpha = 0.4f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "সতর্কতা",
+                            tint = Color(0xFFDC2626),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "ডাটা রিসেট নিরাপত্তা যাচাই",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF991B1B)
+                        )
+                        Text(
+                            text = "এডমিনের আইডি ও পাসওয়ার্ড প্রয়োজন",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFDC2626)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFFEF2F2),
+                    border = BorderStroke(1.dp, Color(0xFFFECACA)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "সকল সদস্য, সঞ্চয়, ঋণ ও কিস্তি আদায়ের ডাটা স্থায়ীভাবে মুছে ফেলতে নিচে এডমিনের আইডি (ইমেইল) ও পাসওয়ার্ড লিখুন। এডমিন ও কালেক্টর লগইন অ্যাকাউন্ট অপরিবর্তিত থাকবে।",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF7F1D1D),
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                OutlinedTextField(
+                    value = adminEmail,
+                    onValueChange = {
+                        adminEmail = it
+                        errorMessage = null
+                    },
+                    label = { Text("এডমিন আইডি *") },
+                    placeholder = { Text("এডমিন আইডি লিখুন") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Email,
+                            contentDescription = null,
+                            tint = Color(0xFF991B1B)
+                        )
+                    },
+                    singleLine = true,
+                    enabled = !isVerifying,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Text,
+                        imeAction = ImeAction.Next
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_reset_admin_email")
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = adminPassword,
+                    onValueChange = {
+                        adminPassword = it
+                        errorMessage = null
+                    },
+                    label = { Text("এডমিন পাসওয়ার্ড *") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = Color(0xFF991B1B)
+                        )
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                contentDescription = if (passwordVisible) "পাসওয়ার্ড লুকান" else "পাসওয়ার্ড দেখুন"
+                            )
+                        }
+                    },
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    singleLine = true,
+                    enabled = !isVerifying,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        imeAction = ImeAction.Done
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_reset_admin_password")
+                )
+
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = errorMessage ?: "",
+                        color = Color(0xFFDC2626),
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.testTag("text_reset_admin_error")
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        enabled = !isVerifying,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
+                        modifier = Modifier
+                            .weight(0.85f)
+                            .heightIn(min = 48.dp)
+                            .testTag("btn_cancel_reset_data")
+                    ) {
+                        Text(
+                            text = "বাতিল",
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            if (adminEmail.isBlank() || adminPassword.isBlank()) {
+                                errorMessage = "এডমিনের আইডি (ইমেইল) ও পাসওয়ার্ড উভয়ই দিন"
+                                return@Button
+                            }
+                            isVerifying = true
+                            onVerifyAndReset(adminEmail, adminPassword) { err ->
+                                isVerifying = false
+                                errorMessage = err
+                            }
+                        },
+                        enabled = !isVerifying,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFDC2626),
+                            contentColor = Color.White
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+                        modifier = Modifier
+                            .weight(1.15f)
+                            .heightIn(min = 48.dp)
+                            .testTag("btn_confirm_reset_data")
+                    ) {
+                        if (isVerifying) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text(
+                                text = "যাচাই করে সব মুছুন",
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

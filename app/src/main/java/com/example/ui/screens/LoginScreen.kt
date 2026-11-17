@@ -137,20 +137,20 @@ fun LoginScreen(
 
                     Spacer(modifier = Modifier.height(22.dp))
 
-                    // Email Field
+                    // ID / Email Field
                     OutlinedTextField(
                         value = email,
                         onValueChange = {
                             email = it
                             authViewModel.clearError()
                         },
-                        label = { Text("ইমেইল (Email)") },
+                        label = { Text("আইডি / ইমেইল (ID / Email)") },
                         leadingIcon = {
                             Icon(Icons.Default.Email, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Email,
+                            keyboardType = KeyboardType.Text,
                             imeAction = ImeAction.Next
                         ),
                         keyboardActions = KeyboardActions(
