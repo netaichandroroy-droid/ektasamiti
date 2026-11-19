@@ -134,6 +134,46 @@ class NameWiseSubmitButtonsTest {
     }
 
     @Test
+    fun savingsScreen_displaysTransactionsInHeaderBasedList() {
+        val tx = runBlocking {
+            repository.recordSavingsDeposit(
+                member = memberNetai,
+                amount = 100.0,
+                savingsPlan = "WEEKLY",
+                note = "সাপ্তাহিক জমা",
+                collectedBy = "নিতাই চন্দ্র রায়",
+                role = UserRole.ADMIN,
+                customDate = System.currentTimeMillis()
+            )
+        }
+
+        composeRule.setContent {
+            EktaSamitiTheme {
+                SavingsScreen(
+                    currentUser = adminUser,
+                    viewModel = samitiViewModel
+                )
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 5000) {
+            samitiViewModel.savingsList.value.isNotEmpty()
+        }
+
+        composeRule.onNodeWithTag("savings_list_table").assertIsDisplayed()
+        composeRule.onNodeWithTag("savings_list_header").assertIsDisplayed()
+        composeRule.onNodeWithText("SL").assertIsDisplayed()
+        composeRule.onNodeWithText("নাম ও তারিখ").assertIsDisplayed()
+        composeRule.onNodeWithText("টাকা").assertIsDisplayed()
+        composeRule.onNodeWithText("অ্যাকশন").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("savings_item_${tx.receiptNumber}").assertIsDisplayed()
+        composeRule.onNodeWithText("+৳100").assertIsDisplayed()
+        composeRule.onNodeWithTag("btn_edit_savings_date_${tx.receiptNumber}").assertIsDisplayed()
+        composeRule.onNodeWithTag("btn_delete_savings_${tx.receiptNumber}").assertIsDisplayed()
+    }
+
+    @Test
     fun savingsWithdrawDialog_displaysAndSwitchesNameWiseSubmitButton() {
         composeRule.setContent {
             EktaSamitiTheme {

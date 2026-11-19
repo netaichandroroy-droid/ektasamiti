@@ -2,7 +2,6 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,20 +19,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditCalendar
-import androidx.compose.material.icons.filled.Receipt
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -62,11 +55,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -100,8 +93,6 @@ fun SavingsScreen(
 
     var selectedTransactionForDelete by remember { mutableStateOf<SavingsTransaction?>(null) }
     var transactionToEditDate by remember { mutableStateOf<SavingsTransaction?>(null) }
-
-    val sdf = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault())
 
     Column(
         modifier = Modifier
@@ -183,38 +174,105 @@ fun SavingsScreen(
                 )
             }
         } else {
-            LazyColumn(
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize()
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color.White,
+                border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                shadowElevation = 2.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                    .testTag("savings_list_table")
             ) {
-                items(savingsList) { item ->
-                    SavingsTransactionCard(
-                        transaction = item,
-                        currentUserRole = currentUser.role,
-                        onCardClick = {
-                            viewModel.showReceipt(
-                                ReceiptData(
-                                    title = if (item.type == "DEPOSIT") "সঞ্চয় জমা মানি রসিদ" else "সঞ্চয় উত্তোলন রসিদ",
-                                    receiptNumber = item.receiptNumber,
-                                    memberCode = item.memberCode,
-                                    memberName = item.memberName,
-                                    transactionType = if (item.type == "DEPOSIT") "জমা (${item.savingsPlan})" else "উত্তোলন",
-                                    amount = item.amount,
-                                    balanceOrDue = item.balanceAfter,
-                                    collectedBy = item.collectedBy,
-                                    timestamp = item.date,
-                                    notes = item.note
-                                )
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Header row matching list columns: SL | নাম ও তারিখ | টাকা | অ্যাকশন
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFFE8F5E9))
+                            .padding(horizontal = 10.dp, vertical = 12.dp)
+                            .testTag("savings_list_header")
+                    ) {
+                        Text(
+                            text = "SL",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF065F46),
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.width(38.dp)
+                        )
+                        Text(
+                            text = "নাম ও তারিখ",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF065F46),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "টাকা",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF065F46),
+                            textAlign = TextAlign.End,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.width(80.dp)
+                        )
+                        Text(
+                            text = "অ্যাকশন",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF065F46),
+                            textAlign = TextAlign.End,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.width(96.dp)
+                        )
+                    }
+
+                    HorizontalDivider(color = Color(0xFF86EFAC))
+
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        itemsIndexed(savingsList, key = { _, item -> item.id }) { index, item ->
+                            SavingsTransactionListRow(
+                                transaction = item,
+                                isStriped = index % 2 == 1,
+                                currentUserRole = currentUser.role,
+                                onRowClick = {
+                                    viewModel.showReceipt(
+                                        ReceiptData(
+                                            title = if (item.type == "DEPOSIT") "সঞ্চয় জমা মানি রসিদ" else "সঞ্চয় উত্তোলন রসিদ",
+                                            receiptNumber = item.receiptNumber,
+                                            memberCode = item.memberCode,
+                                            memberName = item.memberName,
+                                            transactionType = if (item.type == "DEPOSIT") "জমা (${item.savingsPlan})" else "উত্তোলন",
+                                            amount = item.amount,
+                                            balanceOrDue = item.balanceAfter,
+                                            collectedBy = item.collectedBy,
+                                            timestamp = item.date,
+                                            notes = item.note
+                                        )
+                                    )
+                                },
+                                onEditDateClick = {
+                                    transactionToEditDate = item
+                                },
+                                onDeleteClick = {
+                                    selectedTransactionForDelete = item
+                                }
                             )
-                        },
-                        onEditDateClick = {
-                            transactionToEditDate = item
-                        },
-                        onDeleteClick = {
-                            selectedTransactionForDelete = item
+                            if (index < savingsList.lastIndex) {
+                                HorizontalDivider(color = Color(0xFFE2E8F0))
+                            }
                         }
-                    )
+                    }
                 }
             }
         }
@@ -302,113 +360,114 @@ fun SavingsScreen(
 }
 
 @Composable
-fun SavingsTransactionCard(
+fun SavingsTransactionListRow(
     transaction: SavingsTransaction,
+    isStriped: Boolean,
     currentUserRole: UserRole,
-    onCardClick: () -> Unit,
+    onRowClick: () -> Unit,
     onEditDateClick: () -> Unit,
     onDeleteClick: () -> Unit
 ) {
     val isDeposit = transaction.type == "DEPOSIT"
-    val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
-    val cardBg = if (isDeposit) Color(0xFFD1FAE5) else Color(0xFFFEE2E2)
-    val cardBorder = if (isDeposit) Color(0xFF16A34A) else Color(0xFFDC2626)
+    val sdf = remember { SimpleDateFormat("dd MMM yy", Locale.getDefault()) }
+    val amountColor = if (isDeposit) Color(0xFF15803D) else Color(0xFFDC2626)
 
-    Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = cardBg),
-        border = androidx.compose.foundation.BorderStroke(1.5.dp, cardBorder),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onCardClick() }
+            .heightIn(min = 56.dp)
+            .background(if (isStriped) Color(0xFFF8FAFC) else Color.White)
+            .clickable { onRowClick() }
+            .padding(horizontal = 10.dp, vertical = 6.dp)
             .testTag("savings_item_${transaction.receiptNumber}")
     ) {
-        Row(
+        Text(
+            text = transaction.memberCode,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF1E3A8A),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.width(38.dp)
+        )
+
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .weight(1f)
+                .padding(end = 4.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                        .border(1.5.dp, cardBorder, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isDeposit) Icons.Default.ArrowDownward else Icons.Default.ArrowUpward,
-                        contentDescription = null,
-                        tint = if (isDeposit) Color(0xFF065F46) else Color(0xFF991B1B),
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
+            Text(
+                text = transaction.memberName,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF0F172A),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = sdf.format(Date(transaction.date)),
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF475569),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
 
-                Spacer(modifier = Modifier.width(10.dp))
+        Column(
+            horizontalAlignment = Alignment.End,
+            modifier = Modifier.width(80.dp)
+        ) {
+            Text(
+                text = "${if (isDeposit) "+" else "-"}৳${transaction.amount.toInt()}",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = amountColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "স্থিতি: ৳${transaction.balanceAfter.toInt()}",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF334155),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
 
-                Column {
-                    Text(
-                        text = transaction.memberName,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color(0xFF0F172A)
-                    )
-                    Text(
-                        text = "${transaction.memberCode} | রসিদ: ${transaction.receiptNumber}",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1E293B)
-                    )
-                    Text(
-                        text = "${sdf.format(Date(transaction.date))} | সংগ্রাহক: ${transaction.collectedBy}",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF334155)
-                    )
-                }
+        Row(
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.width(96.dp)
+        ) {
+            IconButton(
+                onClick = onEditDateClick,
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("btn_edit_savings_date_${transaction.receiptNumber}")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.EditCalendar,
+                    contentDescription = "তারিখ পরিবর্তন করুন",
+                    tint = Color(0xFF1D4ED8),
+                    modifier = Modifier.size(19.dp)
+                )
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = "${if (isDeposit) "+" else "-"}৳${transaction.amount.toInt()}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (isDeposit) Color(0xFF065F46) else Color(0xFF991B1B)
-                    )
-                    Text(
-                        text = "স্থিতি: ৳${transaction.balanceAfter.toInt()}",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1E293B)
-                    )
-                }
-
+            if (currentUserRole == UserRole.ADMIN) {
                 IconButton(
-                    onClick = onEditDateClick,
-                    modifier = Modifier.testTag("btn_edit_savings_date_${transaction.receiptNumber}")
+                    onClick = onDeleteClick,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("btn_delete_savings_${transaction.receiptNumber}")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.EditCalendar,
-                        contentDescription = "তারিখ পরিবর্তন করুন",
-                        tint = Color(0xFF1D4ED8),
-                        modifier = Modifier.size(19.dp)
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "ডিলিট",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                        modifier = Modifier.size(18.dp)
                     )
-                }
-
-                if (currentUserRole == UserRole.ADMIN) {
-                    IconButton(onClick = onDeleteClick) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
                 }
             }
         }

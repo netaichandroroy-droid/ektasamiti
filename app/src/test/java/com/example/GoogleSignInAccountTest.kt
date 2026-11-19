@@ -78,12 +78,21 @@ class GoogleSignInAccountTest {
 
     @Test
     fun resolveWebClientIdHandlesPresentAndMissingResourceSafely() {
-        // When google-services.json is present, default_web_client_id resolves from R.string
         val resolved = GoogleAuthManager.resolveWebClientId(context)
-        assertNotNull(resolved)
-        assertTrue(resolved!!.isNotBlank())
+        val hasGeneratedField = try {
+            R.string::class.java.getField("default_web_client_id")
+            true
+        } catch (_: NoSuchFieldException) {
+            false
+        }
+        if (hasGeneratedField) {
+            assertNotNull(resolved)
+            assertTrue(resolved!!.isNotBlank())
+        } else {
+            assertEquals(null, resolved)
+        }
 
-        // When missing (e.g. CI without google-services.json), returns null cleanly without throwing
+        // Explicitly verify missing field handling without throwing
         val missing = GoogleAuthManager.resolveStringResByName(context, "non_existent_client_id_field")
         assertEquals(null, missing)
     }
