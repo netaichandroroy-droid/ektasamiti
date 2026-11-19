@@ -263,6 +263,8 @@ fun fridayWeekWindowEnd(centerMillis: Long): Long {
  * As requested: "weekly collection page ta full page hobe"
  * Displays the complete spreadsheet table from user's image across the full screen height!
  */
+enum class WeeklySheetMode { SAVINGS, LOAN }
+
 @Composable
 fun WeeklyCollectionScreen(
     currentUser: User,
@@ -272,6 +274,7 @@ fun WeeklyCollectionScreen(
     val currentCal = remember { Calendar.getInstance() }
     var selectedYear by remember { mutableIntStateOf(currentCal.get(Calendar.YEAR)) }
     var selectedMonthIndex by remember { mutableIntStateOf(currentCal.get(Calendar.MONTH)) }
+    var sheetMode by remember { mutableStateOf(WeeklySheetMode.SAVINGS) }
 
     val members by viewModel.members.collectAsState()
     val savingsList by viewModel.savingsList.collectAsState()
@@ -282,7 +285,8 @@ fun WeeklyCollectionScreen(
     var customDateOverrides by remember {
         mutableStateOf(WeeklyCollectionDatePrefs.loadAllOverrides(context))
     }
-    var showSingleCellDialog by remember { mutableStateOf<Pair<Member, FridayDateInfo>?>(null) }
+    var showSingleCellDialog by remember { mutableStateOf<Triple<Member, FridayDateInfo, Boolean>?>(null) }
+    var memberForNewLoanFromSheet by remember { mutableStateOf<Member?>(null) }
     var showWeeklyDateUpdateDialog by remember { mutableStateOf(false) }
     var preselectedWeekForDateUpdate by remember { mutableStateOf<FridayDateInfo?>(null) }
 
@@ -369,6 +373,61 @@ fun WeeklyCollectionScreen(
                                 softWrap = false,
                                 overflow = TextOverflow.Ellipsis
                             )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Sheet Switcher: সঞ্চয় শীট vs ঋণ শীট
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val isSavingsSelected = sheetMode == WeeklySheetMode.SAVINGS
+                        val isLoanSelected = sheetMode == WeeklySheetMode.LOAN
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSavingsSelected) Color(0xFF1B7A49) else Color(0xFFEFF6F2),
+                            border = BorderStroke(
+                                1.2.dp,
+                                if (isSavingsSelected) Color(0xFF1B7A49) else Color(0xFF86EFAC)
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 42.dp)
+                                .clickable { sheetMode = WeeklySheetMode.SAVINGS }
+                                .testTag("btn_weekly_mode_savings_sheet")
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 8.dp)) {
+                                Text(
+                                    text = "সঞ্চয় শীট",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (isSavingsSelected) Color.White else Color(0xFF065F46)
+                                )
+                            }
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isLoanSelected) Color(0xFF1565C0) else Color(0xFFEFF6FF),
+                            border = BorderStroke(
+                                1.2.dp,
+                                if (isLoanSelected) Color(0xFF1565C0) else Color(0xFF93C5FD)
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 42.dp)
+                                .clickable { sheetMode = WeeklySheetMode.LOAN }
+                                .testTag("btn_weekly_mode_loan_sheet")
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 8.dp)) {
+                                Text(
+                                    text = "ঋণ শীট",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (isLoanSelected) Color.White else Color(0xFF1E3A8A)
+                                )
+                            }
                         }
                     }
 
@@ -461,30 +520,57 @@ fun WeeklyCollectionScreen(
                     .weight(1f)
                     .padding(horizontal = 8.dp, vertical = 8.dp)
             ) {
-                FullPageWeeklyCollectionTableView(
-                    monthGroups = twoMonthsGroups,
-                    members = members,
-                    savingsList = savingsList,
-                    installmentsList = installmentsList,
-                    onHeaderDateClick = { friday ->
-                        preselectedWeekForDateUpdate = friday
-                        showWeeklyDateUpdateDialog = true
-                    },
-                    onCellClick = { member, friday ->
-                        showSingleCellDialog = Pair(member, friday)
-                    }
-                )
+                if (sheetMode == WeeklySheetMode.SAVINGS) {
+                    FullPageWeeklyCollectionTableView(
+                        monthGroups = twoMonthsGroups,
+                        members = members,
+                        savingsList = savingsList,
+                        installmentsList = installmentsList,
+                        onHeaderDateClick = { friday ->
+                            preselectedWeekForDateUpdate = friday
+                            showWeeklyDateUpdateDialog = true
+                        },
+                        onCellClick = { member, friday ->
+                            showSingleCellDialog = Triple(member, friday, false)
+                        }
+                    )
+                } else {
+                    FullPageLoanSheetTableView(
+                        monthGroups = twoMonthsGroups,
+                        members = members,
+                        loansList = loansList,
+                        installmentsList = installmentsList,
+                        onHeaderDateClick = { friday ->
+                            preselectedWeekForDateUpdate = friday
+                            showWeeklyDateUpdateDialog = true
+                        },
+                        onCellClick = { member, friday ->
+                            val hasActive = activeLoans.any { it.memberId == member.id }
+                            val winStart = fridayWeekWindowStart(friday.dateMillis)
+                            val winEnd = fridayWeekWindowEnd(friday.dateMillis)
+                            val hasInstInWeek = installmentsList.any {
+                                it.memberId == member.id && it.paymentDate in winStart..winEnd
+                            }
+                            if (hasActive || hasInstInWeek) {
+                                showSingleCellDialog = Triple(member, friday, true)
+                            } else {
+                                memberForNewLoanFromSheet = member
+                            }
+                        }
+                    )
+                }
             }
         }
     }
 
     // Modal 2: Single Cell Collection Dialog (also supports updating existing cell entry dates)
-    showSingleCellDialog?.let { (member, friday) ->
+    showSingleCellDialog?.let { (member, friday, isLoanOnlyMode) ->
         val memberActiveLoan = activeLoans.firstOrNull { it.memberId == member.id }
         val windowStart = fridayWeekWindowStart(friday.dateMillis)
         val windowEnd = fridayWeekWindowEnd(friday.dateMillis)
-        val existingCellSavings = remember(savingsList, member.id, windowStart, windowEnd) {
-            savingsList.filter {
+        val existingCellSavings = remember(savingsList, member.id, windowStart, windowEnd, isLoanOnlyMode) {
+            if (isLoanOnlyMode) emptyList()
+            else savingsList.filter {
                 it.memberId == member.id && it.date in windowStart..windowEnd && it.type == "DEPOSIT"
             }
         }
@@ -493,13 +579,24 @@ fun WeeklyCollectionScreen(
                 it.memberId == member.id && it.paymentDate in windowStart..windowEnd
             }
         }
+        val memberAllSavings = remember(savingsList, member.id) {
+            savingsList.filter {
+                it.memberId == member.id && it.type == "DEPOSIT" && it.note != "প্রারম্ভিক সঞ্চয় জমা"
+            }
+        }
+        val memberAllInstallments = remember(installmentsList, member.id) {
+            installmentsList.filter { it.memberId == member.id }
+        }
         RecordFridayCollectionDialog(
             member = member,
             friday = friday,
             activeLoan = memberActiveLoan,
             currentUser = currentUser,
+            isLoanOnlyMode = isLoanOnlyMode,
             existingSavings = existingCellSavings,
             existingInstallments = existingCellInstallments,
+            memberAllSavings = memberAllSavings,
+            memberAllInstallments = memberAllInstallments,
             onUpdateSavingsDate = { tx, newMillis ->
                 viewModel.updateSavingsTransactionDate(tx, newMillis)
             },
@@ -521,6 +618,29 @@ fun WeeklyCollectionScreen(
                     onComplete = {
                         showSingleCellDialog = null
                     }
+                )
+            }
+        )
+    }
+
+    memberForNewLoanFromSheet?.let { targetMember ->
+        NewLoanDisbursalDialog(
+            members = members,
+            preselectedMember = targetMember,
+            currentUser = currentUser,
+            onDismiss = { memberForNewLoanFromSheet = null },
+            onSubmit = { member, principal, rate, charge, installments, freq, purpose, disbursedDateMillis ->
+                viewModel.disburseLoan(
+                    member = member,
+                    principalAmount = principal,
+                    chargeAmount = charge,
+                    totalInstallments = installments,
+                    frequency = freq,
+                    purpose = purpose,
+                    disbursedBy = currentUser.fullName,
+                    interestRate = rate,
+                    disbursedDate = disbursedDateMillis,
+                    onComplete = { memberForNewLoanFromSheet = null }
                 )
             }
         )
@@ -832,7 +952,7 @@ fun FullPageWeeklyCollectionTableView(
                             )
                         }
 
-                        // Friday Date Amount Cells
+                        // Friday Date Savings Amount Cells
                         allFridays.forEach { fDate ->
                             val windowStart = fridayWeekWindowStart(fDate.dateMillis)
                             val windowEnd = fridayWeekWindowEnd(fDate.dateMillis)
@@ -840,10 +960,7 @@ fun FullPageWeeklyCollectionTableView(
                             val memberSavings = savingsList.filter {
                                 it.memberId == member.id && it.date in windowStart..windowEnd && it.type == "DEPOSIT"
                             }
-                            val memberInst = installmentsList.filter {
-                                it.memberId == member.id && it.paymentDate in windowStart..windowEnd
-                            }
-                            val totalCellAmount = (memberSavings.sumOf { it.amount } + memberInst.sumOf { it.paidAmount }).toInt()
+                            val totalCellAmount = memberSavings.sumOf { it.amount }.toInt()
                             val isPaid = totalCellAmount > 0
 
                             Box(
@@ -909,11 +1026,7 @@ fun FullPageWeeklyCollectionTableView(
                         it.date in windowStart..windowEnd && it.type == "DEPOSIT"
                     }.sumOf { it.amount }
 
-                    val totalColInst = installmentsList.filter {
-                        it.paymentDate in windowStart..windowEnd
-                    }.sumOf { it.paidAmount }
-
-                    val colTotal = (totalColSavings + totalColInst).toInt()
+                    val colTotal = totalColSavings.toInt()
 
                     Box(
                         modifier = Modifier
@@ -941,15 +1054,18 @@ fun RecordFridayCollectionDialog(
     friday: FridayDateInfo,
     activeLoan: Loan?,
     currentUser: User,
+    isLoanOnlyMode: Boolean = false,
     existingSavings: List<SavingsTransaction> = emptyList(),
     existingInstallments: List<InstallmentPayment> = emptyList(),
+    memberAllSavings: List<SavingsTransaction> = existingSavings,
+    memberAllInstallments: List<InstallmentPayment> = existingInstallments,
     onUpdateSavingsDate: (SavingsTransaction, Long) -> Unit = { _, _ -> },
     onUpdateInstallmentDate: (InstallmentPayment, Long) -> Unit = { _, _ -> },
     onDismiss: () -> Unit,
     onSubmit: (Double, Double, Double, String, Long, String) -> Unit
 ) {
-    var savingsAmountText by remember { mutableStateOf("100") }
-    var loanAmountText by remember { mutableStateOf(if (activeLoan != null) "${activeLoan.perInstallmentAmount.toInt()}" else "0") }
+    var savingsAmountText by remember(isLoanOnlyMode) { mutableStateOf(if (isLoanOnlyMode) "0" else "100") }
+    var loanAmountText by remember(activeLoan) { mutableStateOf(if (activeLoan != null) "${activeLoan.perInstallmentAmount.toInt()}" else "0") }
     var penaltyText by remember { mutableStateOf("0") }
     var selectedDateMillis by remember(friday) { mutableStateOf(friday.dateMillis) }
     var editingSavingsTx by remember { mutableStateOf<SavingsTransaction?>(null) }
@@ -961,7 +1077,24 @@ fun RecordFridayCollectionDialog(
             SamitiDateUtils.formatDateDisplay(selectedDateMillis)
         }
     }
-    var note by remember { mutableStateOf("${friday.displayLabel} এর সাপ্তাহিক আদায়") }
+    var note by remember {
+        mutableStateOf(
+            if (isLoanOnlyMode) "${friday.displayLabel} এর কিস্তি আদায়"
+            else "${friday.displayLabel} এর সাপ্তাহিক আদায়"
+        )
+    }
+    val isAlreadySubmittedOnSelectedDate = remember(
+        selectedDateMillis,
+        isLoanOnlyMode,
+        memberAllSavings,
+        memberAllInstallments
+    ) {
+        if (isLoanOnlyMode) {
+            memberAllInstallments.any { SamitiDateUtils.isSameLocalDay(it.paymentDate, selectedDateMillis) }
+        } else {
+            memberAllSavings.any { SamitiDateUtils.isSameLocalDay(it.date, selectedDateMillis) }
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -970,10 +1103,14 @@ fun RecordFridayCollectionDialog(
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0xFF0A6C3C)),
+            border = androidx.compose.foundation.BorderStroke(
+                1.2.dp,
+                if (isLoanOnlyMode) Color(0xFF1565C0) else Color(0xFF0A6C3C)
+            ),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
+                .testTag(if (isLoanOnlyMode) "dialog_loan_cell_collection" else "dialog_savings_cell_collection")
         ) {
             Column(
                 modifier = Modifier
@@ -987,10 +1124,10 @@ fun RecordFridayCollectionDialog(
                 ) {
                     Column {
                         Text(
-                            text = "সাপ্তাহিক কালেকশন এন্ট্রি",
+                            text = if (isLoanOnlyMode) "ঋণ ও কিস্তি কালেকশন এন্ট্রি" else "সাপ্তাহিক কালেকশন এন্ট্রি",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.ExtraBold,
-                            color = Color(0xFF1B7A49)
+                            color = if (isLoanOnlyMode) Color(0xFF1565C0) else Color(0xFF1B7A49)
                         )
                         Text(
                             text = "$selectedDateLabel (${SamitiDateUtils.formatShortDate(selectedDateMillis)})",
@@ -1120,16 +1257,39 @@ fun RecordFridayCollectionDialog(
                         selectedDateMillis = newMillis
                     },
                     testTag = "btn_pick_cell_collection_date",
-                    accentColor = Color(0xFF1B7A49)
+                    accentColor = if (isLoanOnlyMode) Color(0xFF1565C0) else Color(0xFF1B7A49)
                 )
+
+                if (isAlreadySubmittedOnSelectedDate) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFFEF2F2),
+                        border = BorderStroke(1.dp, Color(0xFFFCA5A5)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("warning_duplicate_cell_date")
+                    ) {
+                        Text(
+                            text = "এই তারিখে (${SamitiDateUtils.formatShortDate(selectedDateMillis)}) ইতিমধ্যে সাবমিট করা হয়েছে! এক তারিখে দুইবার সাবমিট হবে না।",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFB91C1C),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Member Summary Card (Distinct soft green background, bold dark text)
+                // Member Summary Card (Distinct soft green/blue background, bold dark text)
                 Surface(
                     shape = RoundedCornerShape(10.dp),
-                    color = Color(0xFFF0FDF4),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF86EFAC)),
+                    color = if (isLoanOnlyMode) Color(0xFFEFF6FF) else Color(0xFFF0FDF4),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isLoanOnlyMode) Color(0xFF93C5FD) else Color(0xFF86EFAC)
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
@@ -1163,6 +1323,13 @@ fun RecordFridayCollectionDialog(
                                     color = Color(0xFFD32F2F),
                                     fontWeight = FontWeight.ExtraBold
                                 )
+                            } else if (isLoanOnlyMode) {
+                                Text(
+                                    text = "ঋণ পরিশোধিত ✓",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFF1D4ED8),
+                                    fontWeight = FontWeight.ExtraBold
+                                )
                             }
                         }
                     }
@@ -1170,18 +1337,20 @@ fun RecordFridayCollectionDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Savings Amount
-                OutlinedTextField(
-                    value = savingsAmountText,
-                    onValueChange = { savingsAmountText = it },
-                    label = { Text("সাপ্তাহিক সঞ্চয় জমা (টাকা)", fontWeight = FontWeight.Bold) },
-                    leadingIcon = { Icon(Icons.Default.Savings, contentDescription = null, tint = Color(0xFF1B7A49)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                if (!isLoanOnlyMode) {
+                    // Savings Amount
+                    OutlinedTextField(
+                        value = savingsAmountText,
+                        onValueChange = { savingsAmountText = it },
+                        label = { Text("সাপ্তাহিক সঞ্চয় জমা (টাকা)", fontWeight = FontWeight.Bold) },
+                        leadingIcon = { Icon(Icons.Default.Savings, contentDescription = null, tint = Color(0xFF1B7A49)) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
 
                 // Loan Installment Amount (if loan active)
                 if (activeLoan != null) {
@@ -1192,22 +1361,31 @@ fun RecordFridayCollectionDialog(
                         leadingIcon = { Icon(Icons.Default.Paid, contentDescription = null, tint = Color(0xFFB57300)) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().testTag("input_cell_loan_amount")
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                // Note
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = { note = it },
-                    label = { Text("মন্তব্য / নোট", fontWeight = FontWeight.Bold) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                if (!isLoanOnlyMode || activeLoan != null) {
+                    // Note
+                    OutlinedTextField(
+                        value = note,
+                        onValueChange = { note = it },
+                        label = { Text("মন্তব্য / নোট", fontWeight = FontWeight.Bold) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                } else {
+                    Text(
+                        text = "এই সদস্যের কোনো চলমান ঋণ নেই। পূর্ববর্তী কিস্তির তারিখ আপডেট করতে উপরের বাটনে চাপ দিন।",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF475569)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
 
                 // Action Buttons
                 Row(
@@ -1229,24 +1407,32 @@ fun RecordFridayCollectionDialog(
                         )
                     }
 
-                    Button(
-                        onClick = {
-                            val savAmt = savingsAmountText.toDoubleOrNull() ?: 0.0
-                            val loanAmt = loanAmountText.toDoubleOrNull() ?: 0.0
-                            val penalty = penaltyText.toDoubleOrNull() ?: 0.0
-                            onSubmit(savAmt, loanAmt, penalty, note, selectedDateMillis, selectedDateLabel)
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B7A49)),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                        modifier = Modifier.weight(1.15f)
-                    ) {
-                        Text(
-                            text = "জমা নিন",
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                    if (!isLoanOnlyMode || activeLoan != null) {
+                        Button(
+                            onClick = {
+                                if (isAlreadySubmittedOnSelectedDate) return@Button
+                                val savAmt = savingsAmountText.toDoubleOrNull() ?: 0.0
+                                val loanAmt = loanAmountText.toDoubleOrNull() ?: 0.0
+                                val penalty = penaltyText.toDoubleOrNull() ?: 0.0
+                                onSubmit(savAmt, loanAmt, penalty, note, selectedDateMillis, selectedDateLabel)
+                            },
+                            enabled = !isAlreadySubmittedOnSelectedDate,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isLoanOnlyMode) Color(0xFF1565C0) else Color(0xFF1B7A49)
+                            ),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            modifier = Modifier
+                                .weight(1.15f)
+                                .testTag("btn_confirm_cell_collection")
+                        ) {
+                            Text(
+                                text = if (isLoanOnlyMode) "কিস্তি জমা নিন" else "জমা নিন",
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
             }

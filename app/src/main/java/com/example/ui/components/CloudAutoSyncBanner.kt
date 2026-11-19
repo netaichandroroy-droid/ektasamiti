@@ -199,7 +199,7 @@ fun CloudAutoSyncBanner(
                                 CloudSyncStatus.SYNCING -> "সদস্য, সঞ্চয় ও কিস্তি ক্লাউডে সিঙ্ক হচ্ছে..."
                                 CloudSyncStatus.OFFLINE_PENDING -> "লোকাল ডাটা সুরক্ষিত আছে; ইন্টারনেট সংযোগ পেলেই অটো আপলোড হবে।"
                                 CloudSyncStatus.ERROR -> syncState.errorMessage ?: "ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।"
-                                CloudSyncStatus.NEEDS_GOOGLE_SIGN_IN -> "সব ডিভাইসে স্বয়ংক্রিয় ব্যাকআপ ও সিঙ্ক পেতে Google দিয়ে সাইন-ইন করুন।"
+                                CloudSyncStatus.NEEDS_GOOGLE_SIGN_IN -> "সব ডিভাইসে স্বয়ংক্রিয় ব্যাকআপ ও সিঙ্ক পেতে Google (${GoogleAuthManager.SAMITI_GOOGLE_EMAIL}) দিয়ে সাইন-ইন করুন।"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,

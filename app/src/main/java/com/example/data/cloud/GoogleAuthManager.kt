@@ -2,12 +2,14 @@ package com.example.data.cloud
 
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.util.Log
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import com.example.R
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
@@ -26,6 +28,7 @@ import kotlinx.coroutines.withContext
 
 object GoogleAuthManager {
     private const val TAG = "GoogleAuthManager"
+    const val SAMITI_GOOGLE_EMAIL = "jadobpursamiti@gmail.com"
 
     fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
         val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
@@ -117,7 +120,7 @@ object GoogleAuthManager {
             return
         }
 
-        val activityContext = context as? Activity
+        val activityContext = context.findActivity()
         if (activityContext == null) {
             onAuthError("Activity context required for Google Sign-In")
             return
@@ -185,14 +188,15 @@ object GoogleAuthManager {
 
     private fun resolveWebClientId(context: Context): String? {
         return try {
-            val resId = context.resources.getIdentifier(
-                "default_web_client_id",
-                "string",
-                context.packageName
-            )
-            if (resId != 0) context.getString(resId) else null
-        } catch (e: Exception) {
+            context.getString(R.string.default_web_client_id).takeIf { it.isNotBlank() }
+        } catch (_: Exception) {
             null
         }
+    }
+
+    private tailrec fun Context.findActivity(): Activity? = when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
     }
 }

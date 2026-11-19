@@ -23,7 +23,7 @@ import com.example.data.model.UserRole
         Loan::class,
         InstallmentPayment::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -51,6 +51,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "INSERT OR IGNORE INTO users (email, passwordHash, fullName, mobile, role, isActive, createdAt) " +
+                        "VALUES ('jadobpursamiti@gmail.com', 'google_oauth', 'যাদবপুর একতা সমিতি (অ্যাডমিন)', '', 'ADMIN', 1, 0)"
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -58,7 +67,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "ekta_samiti_app.db"
                 )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                    .setJournalMode(JournalMode.TRUNCATE)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
@@ -101,6 +111,20 @@ abstract class AppDatabase : RoomDatabase() {
                     put("fullName", "মো: রহিম মিয়া (মাঠকর্মী)")
                     put("mobile", "01822334455")
                     put("role", UserRole.COLLECTOR.name)
+                    put("isActive", 1)
+                    put("createdAt", now)
+                }
+            )
+            // Official Samiti Google Sign-In Admin Account
+            db.insert(
+                "users",
+                SQLiteDatabase.CONFLICT_IGNORE,
+                ContentValues().apply {
+                    put("email", "jadobpursamiti@gmail.com")
+                    put("passwordHash", "google_oauth")
+                    put("fullName", "যাদবপুর একতা সমিতি (অ্যাডমিন)")
+                    put("mobile", "")
+                    put("role", UserRole.ADMIN.name)
                     put("isActive", 1)
                     put("createdAt", now)
                 }

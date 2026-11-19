@@ -90,13 +90,18 @@ class AuthViewModel(
         email: String?,
         displayName: String?
     ): User {
-        val normalizedEmail = email?.trim()?.ifBlank { null } ?: "director@ektasamiti.com"
+        val normalizedEmail = email?.trim()?.ifBlank { null } ?: GoogleAuthManager.SAMITI_GOOGLE_EMAIL
         val existing = repository.getUserByEmail(normalizedEmail)
         if (existing != null) return existing
+        val defaultName = if (normalizedEmail.equals(GoogleAuthManager.SAMITI_GOOGLE_EMAIL, ignoreCase = true)) {
+            "যাদবপুর একতা সমিতি (অ্যাডমিন)"
+        } else {
+            "একতা সমিতি পরিচালক"
+        }
         val newUser = User(
             email = normalizedEmail,
             passwordHash = "google_oauth",
-            fullName = displayName?.trim()?.ifBlank { null } ?: "একতা সমিতি পরিচালক",
+            fullName = displayName?.trim()?.ifBlank { null } ?: defaultName,
             mobile = "",
             role = UserRole.ADMIN,
             isActive = true
@@ -111,17 +116,13 @@ class AuthViewModel(
         onSuccess: () -> Unit = {}
     ) {
         viewModelScope.launch {
-            val current = _uiState.value.currentUser
-            if (current != null) {
-                onSuccess()
-                return@launch
-            }
             val user = resolveOrCreateGoogleSamitiUser(email, displayName)
             sessionPreferences?.saveLoggedInSession(user.id, user.email)
             _uiState.value = AuthUiState(
                 currentUser = user,
                 isLoading = false,
-                isCheckingSession = false
+                isCheckingSession = false,
+                errorMessage = null
             )
             onSuccess()
         }

@@ -63,7 +63,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -94,8 +93,6 @@ fun SavingsScreen(
 ) {
     val members by viewModel.members.collectAsState()
     val savingsList by viewModel.savingsList.collectAsState()
-    val todaySavings = remember(savingsList) { viewModel.getTodaySavingsTotal() }
-    val totalSavingsFund = remember(members) { members.sumOf { it.savingsBalance } }
 
     var showDepositDialog by remember { mutableStateOf(showDepositDialogInitially || preselectedMemberForDeposit != null) }
     var showWithdrawDialog by remember { mutableStateOf(false) }
@@ -111,96 +108,13 @@ fun SavingsScreen(
             .fillMaxSize()
             .testTag("savings_screen")
     ) {
-        // Top stats bar
+        // Top actions bar (no summary cards)
         Surface(
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 2.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    Brush.linearGradient(listOf(Color(0xFF148549), Color(0xFF1FB364)))
-                                )
-                                .padding(12.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Savings,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.22f),
-                                modifier = Modifier.align(Alignment.BottomEnd).size(42.dp)
-                            )
-                            Column {
-                                Text(
-                                    text = "আজকের সঞ্চয় জমা",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White.copy(alpha = 0.94f)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    "৳ ${todaySavings.toInt()}",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = Color.White
-                                )
-                            }
-                        }
-                    }
-
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    Brush.linearGradient(listOf(Color(0xFF008488), Color(0xFF00A8A8)))
-                                )
-                                .padding(12.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Savings,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.22f),
-                                modifier = Modifier.align(Alignment.BottomEnd).size(42.dp)
-                            )
-                            Column {
-                                Text(
-                                    text = "মোট সঞ্চয় তহবিল",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White.copy(alpha = 0.94f)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    "৳ ${totalSavingsFund.toInt()}",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = Color.White
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                 // Fast Action Buttons: Deposit & Withdrawal
                 Row(
                     modifier = Modifier.fillMaxWidth(),

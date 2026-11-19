@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.room.Room
@@ -108,6 +109,8 @@ class NameWiseSubmitButtonsTest {
         composeRule.waitUntil(timeoutMillis = 5000) {
             samitiViewModel.members.value.size == 2
         }
+        composeRule.onNodeWithText("আজকের সঞ্চয় জমা").assertDoesNotExist()
+        composeRule.onNodeWithText("মোট সঞ্চয় তহবিল").assertDoesNotExist()
         composeRule.onNodeWithTag("savings_quick_member_row").assertIsDisplayed()
         composeRule.onNodeWithTag("btn_savings_member_02").assertIsDisplayed().performClick()
         composeRule.waitForIdle()

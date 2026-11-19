@@ -1,6 +1,10 @@
 package com.example
 
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -15,6 +19,7 @@ import com.example.data.local.AppDatabase
 import com.example.data.model.User
 import com.example.data.model.UserRole
 import com.example.data.repository.SamitiRepository
+import com.example.ui.screens.IsSubmittedBlueKey
 import com.example.ui.screens.MemberRegistrationDialog
 import com.example.ui.screens.MembersScreen
 import com.example.ui.screens.WeeklyCollectionScreen
@@ -190,10 +195,11 @@ class MembersScreenLayoutTest {
             samitiViewModel.members.value.isNotEmpty()
         }
 
-        // Tap name-wise submit button next to netai's name
+        // Before submit: button is displayed and NOT yet blue
         composeRule.onNodeWithTag("btn_member_submit_01")
             .assertIsDisplayed()
             .assertTextEquals("netai - সাবমিট")
+            .assert(SemanticsMatcher.expectValue(IsSubmittedBlueKey, false))
             .performClick()
         composeRule.waitForIdle()
 
@@ -207,6 +213,7 @@ class MembersScreenLayoutTest {
         composeRule.onNodeWithTag("btn_confirm_member_weekly_submit")
             .performScrollTo()
             .assertTextEquals("netai - সাবমিট নিশ্চিত")
+            .assertIsEnabled()
             .performClick()
 
         composeRule.waitUntil(timeoutMillis = 5000) {
@@ -214,9 +221,11 @@ class MembersScreenLayoutTest {
         }
         composeRule.waitForIdle()
 
-        // After submit, the submit button must no longer show for this member
-        composeRule.onNodeWithTag("btn_member_submit_01").assertDoesNotExist()
-        composeRule.onNodeWithText("netai - সাবমিট").assertDoesNotExist()
+        // After submit: submit button MUST stay displayed AND turn blue
+        composeRule.onNodeWithTag("btn_member_submit_01")
+            .assertIsDisplayed()
+            .assertTextEquals("netai - সাবমিট")
+            .assert(SemanticsMatcher.expectValue(IsSubmittedBlueKey, true))
 
         // Verify transaction stored with selected date and updated balance
         kotlinx.coroutines.runBlocking {
@@ -242,11 +251,151 @@ class MembersScreenLayoutTest {
             composeRule.onAllNodes(androidx.compose.ui.test.hasText("250")).fetchSemanticsNodes().isNotEmpty()
         )
 
-        // Switch back to MembersScreen and ensure submit button remains hidden
+        // Switch back to MembersScreen and ensure submit button remains visible and blue
         showWeeklyState.value = false
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("members_screen").assertIsDisplayed()
-        composeRule.onNodeWithTag("btn_member_submit_01").assertDoesNotExist()
+        composeRule.onNodeWithTag("btn_member_submit_01")
+            .assertIsDisplayed()
+            .assert(SemanticsMatcher.expectValue(IsSubmittedBlueKey, true))
+    }
+
+    @Test
+    fun memberWeeklySubmit_blocksDuplicateOnSameDateAndAllowsDifferentDate() {
+        val now = Calendar.getInstance()
+        val fridays = calculateFridaysForMonth(
+            year = now.get(Calendar.YEAR),
+            monthIndex = now.get(Calendar.MONTH)
+        )
+        val firstFriday = fridays[0]
+        val secondFriday = fridays[1]
+
+        val memberId = kotlinx.coroutines.runBlocking {
+            repository.addMember(
+                com.example.data.model.Member(
+                    memberCode = "01",
+                    name = "netai",
+                    mobile = "",
+                    memberType = "WEEKLY",
+                    savingsBalance = 500.0,
+                    registeredBy = "Nitai"
+                )
+            )
+        }
+
+        composeRule.setContent {
+            EktaSamitiTheme {
+                MembersScreen(
+                    currentUser = adminUser,
+                    viewModel = samitiViewModel
+                )
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 5000) {
+            samitiViewModel.members.value.isNotEmpty()
+        }
+
+        // First submission on firstFriday
+        composeRule.onNodeWithTag("btn_member_submit_01").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("chip_member_week_${firstFriday.columnKey}")
+            .performScrollTo()
+            .performClick()
+        composeRule.onNodeWithTag("input_member_weekly_savings")
+            .performScrollTo()
+            .performTextReplacement("200")
+        composeRule.onNodeWithTag("btn_confirm_member_weekly_submit")
+            .performScrollTo()
+            .performClick()
+
+        composeRule.waitUntil(timeoutMillis = 5000) {
+            samitiViewModel.members.value.any { it.savingsBalance == 700.0 }
+        }
+        composeRule.waitForIdle()
+
+        // Button stays visible & turns blue
+        composeRule.onNodeWithTag("btn_member_submit_01")
+            .assertIsDisplayed()
+            .assert(SemanticsMatcher.expectValue(IsSubmittedBlueKey, true))
+
+        // Re-opening dialog and picking the SAME date shows duplicate warning & disables confirm button
+        composeRule.onNodeWithTag("btn_member_submit_01").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("chip_member_week_${firstFriday.columnKey}")
+            .performScrollTo()
+            .performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("warning_duplicate_date_submit")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("btn_confirm_member_weekly_submit")
+            .performScrollTo()
+            .assertIsNotEnabled()
+
+        // Switching to a DIFFERENT date clears warning and enables submission
+        composeRule.onNodeWithTag("chip_member_week_${secondFriday.columnKey}")
+            .performScrollTo()
+            .performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("warning_duplicate_date_submit").assertDoesNotExist()
+        composeRule.onNodeWithTag("btn_confirm_member_weekly_submit")
+            .performScrollTo()
+            .assertIsEnabled()
+
+        // Also verify ViewModel-level same-date guard blocks duplicate calls
+        val currentMember = kotlinx.coroutines.runBlocking { database.memberDao().getMemberById(memberId)!! }
+        var completedDuplicate = false
+        samitiViewModel.recordFridayCellCollection(
+            member = currentMember,
+            savingsAmount = 300.0,
+            loanAmount = 0.0,
+            activeLoan = null,
+            penalty = 0.0,
+            fridayDateMillis = firstFriday.dateMillis,
+            fridayLabel = firstFriday.displayLabel,
+            collectedBy = adminUser.fullName,
+            role = adminUser.role,
+            onComplete = { completedDuplicate = true }
+        )
+        composeRule.waitUntil(timeoutMillis = 5000) { completedDuplicate }
+
+        kotlinx.coroutines.runBlocking {
+            val txs = database.savingsDao().getAllTransactionsList()
+            org.junit.Assert.assertEquals(1, txs.size)
+            val mAfterDup = database.memberDao().getMemberById(memberId)!!
+            org.junit.Assert.assertEquals(700.0, mAfterDup.savingsBalance, 0.01)
+        }
+        org.junit.Assert.assertTrue(
+            samitiViewModel.activeSuccessPopup.value?.isWarning == true
+        )
+        org.junit.Assert.assertEquals(
+            "এক তারিখে দুইবার সাবমিট হবে না!",
+            samitiViewModel.activeSuccessPopup.value?.title
+        )
+
+        // Submitting on secondFriday via ViewModel succeeds
+        var completedSecond = false
+        samitiViewModel.recordFridayCellCollection(
+            member = currentMember,
+            savingsAmount = 150.0,
+            loanAmount = 0.0,
+            activeLoan = null,
+            penalty = 0.0,
+            fridayDateMillis = secondFriday.dateMillis,
+            fridayLabel = secondFriday.displayLabel,
+            collectedBy = adminUser.fullName,
+            role = adminUser.role,
+            onComplete = { completedSecond = true }
+        )
+        composeRule.waitUntil(timeoutMillis = 5000) { completedSecond }
+
+        kotlinx.coroutines.runBlocking {
+            val txs = database.savingsDao().getAllTransactionsList()
+            org.junit.Assert.assertEquals(2, txs.size)
+            val mAfterSecond = database.memberDao().getMemberById(memberId)!!
+            org.junit.Assert.assertEquals(850.0, mAfterSecond.savingsBalance, 0.01)
+        }
     }
 
     @Test

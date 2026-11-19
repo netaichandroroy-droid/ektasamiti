@@ -30,13 +30,14 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.Paid
-import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Percent
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
@@ -74,8 +75,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -94,9 +95,11 @@ import com.example.ui.components.DatePickerField
 import com.example.ui.components.LoanScheduleDialog
 import com.example.ui.components.ReceiptDialog
 import com.example.ui.components.SamitiDatePickerDialog
+import com.example.ui.components.SamitiDateUtils
 import com.example.ui.viewmodel.ReceiptData
 import com.example.ui.viewmodel.SamitiViewModel
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -109,11 +112,23 @@ fun LoansScreen(
     showNewLoanInitially: Boolean = false,
     showCollectInstallmentInitially: Boolean = false
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: কিস্তি আদায়, 1: চলমান ঋণ, 2: আদায় বিবরণী
+    val context = LocalContext.current
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: ঋণ শীট, 1: চলমান ঋণ, 2: আদায় বিবরণী, 3: সকল ঋণ
     val members by viewModel.members.collectAsState()
+    val savingsList by viewModel.savingsList.collectAsState()
     val loansList by viewModel.loansList.collectAsState()
     val activeLoans by viewModel.activeLoans.collectAsState()
     val installmentsList by viewModel.installmentsList.collectAsState()
+
+    val currentCal = remember { Calendar.getInstance() }
+    var selectedYear by remember { mutableIntStateOf(currentCal.get(Calendar.YEAR)) }
+    var selectedMonthIndex by remember { mutableIntStateOf(currentCal.get(Calendar.MONTH)) }
+    var customDateOverrides by remember {
+        mutableStateOf(WeeklyCollectionDatePrefs.loadAllOverrides(context))
+    }
+    val twoMonthsGroups = remember(selectedYear, selectedMonthIndex, customDateOverrides) {
+        calculateTwoMonthsFridays(selectedYear, selectedMonthIndex, customDateOverrides)
+    }
 
     var showNewLoanDialog by remember { mutableStateOf(showNewLoanInitially || preselectedMemberForLoan != null) }
     var selectedMemberForNewLoan by remember { mutableStateOf(preselectedMemberForLoan) }
@@ -123,6 +138,9 @@ fun LoansScreen(
     var selectedLoanForDelete by remember { mutableStateOf<Loan?>(null) }
     var loanToEditDate by remember { mutableStateOf<Loan?>(null) }
     var paymentToEditDate by remember { mutableStateOf<InstallmentPayment?>(null) }
+    var showSheetCellDialog by remember { mutableStateOf<Pair<Member, FridayDateInfo>?>(null) }
+    var showLoanSheetDateUpdateDialog by remember { mutableStateOf(false) }
+    var preselectedWeekForDateUpdate by remember { mutableStateOf<FridayDateInfo?>(null) }
     var loanSearchQuery by remember { mutableStateOf("") }
 
     LaunchedEffect(showNewLoanInitially, preselectedMemberForLoan) {
@@ -155,7 +173,6 @@ fun LoansScreen(
         }
     }
 
-    val totalActiveLoanDue = remember(activeLoans) { activeLoans.sumOf { it.remainingDue } }
     val totalPaidSoFar = remember(loansList) { loansList.sumOf { it.totalPaid } }
     val sdf = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault())
 
@@ -164,110 +181,13 @@ fun LoansScreen(
             .fillMaxSize()
             .testTag("loans_screen")
     ) {
-        // Top Header and Metrics
+        // Top Header and Actions (no summary cards)
         Surface(
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 2.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    Brush.linearGradient(listOf(Color(0xFFEA356B), Color(0xFFF4608B)))
-                                )
-                                .padding(12.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Payments,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.22f),
-                                modifier = Modifier.align(Alignment.BottomEnd).size(44.dp)
-                            )
-                            Column {
-                                Text(
-                                    text = "চলমান মোট বকেয়া ঋণ",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White.copy(alpha = 0.94f)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    "৳ ${totalActiveLoanDue.toInt()}",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = Color.White
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    "${activeLoans.size} টি ঋণ চলমান",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White.copy(alpha = 0.88f),
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                    }
-
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    Brush.linearGradient(listOf(Color(0xFFDF8200), Color(0xFFF6A10B)))
-                                )
-                                .padding(12.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Paid,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.22f),
-                                modifier = Modifier.align(Alignment.BottomEnd).size(44.dp)
-                            )
-                            Column {
-                                Text(
-                                    text = "সর্বমোট কিস্তি আদায়",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White.copy(alpha = 0.94f)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    "৳ ${totalPaidSoFar.toInt()}",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = Color.White
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    "${installmentsList.size} টি কিস্তি সংগৃহীত",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White.copy(alpha = 0.88f),
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                 // Action Buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -391,17 +311,51 @@ fun LoansScreen(
             Tab(
                 selected = selectedTab == 0,
                 onClick = { selectedTab = 0 },
-                text = { Text("চলমান ঋণ (${activeLoans.size})") }
+                modifier = Modifier.testTag("tab_loans_sheet"),
+                text = {
+                    Text(
+                        text = "ঋণ শীট",
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             )
             Tab(
                 selected = selectedTab == 1,
                 onClick = { selectedTab = 1 },
-                text = { Text("কিস্তি আদায় বিবরণী (${installmentsList.size})") }
+                modifier = Modifier.testTag("tab_loans_active"),
+                text = {
+                    Text(
+                        text = "চলমান (${activeLoans.size})",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             )
             Tab(
                 selected = selectedTab == 2,
                 onClick = { selectedTab = 2 },
-                text = { Text("সকল ঋণ (${loansList.size})") }
+                modifier = Modifier.testTag("tab_loans_payments"),
+                text = {
+                    Text(
+                        text = "আদায় (${installmentsList.size})",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            )
+            Tab(
+                selected = selectedTab == 3,
+                onClick = { selectedTab = 3 },
+                modifier = Modifier.testTag("tab_loans_all"),
+                text = {
+                    Text(
+                        text = "সকল (${loansList.size})",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             )
         }
 
@@ -409,6 +363,150 @@ fun LoansScreen(
         Box(modifier = Modifier.fillMaxSize()) {
             when (selectedTab) {
                 0 -> {
+                    // ঋণ শীট (Spreadsheet View matching সঞ্চয় শীট)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                MONTH_NAMES_BANGLA.forEachIndexed { index, name ->
+                                    val isSelected = selectedMonthIndex == index
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (isSelected) Color(0xFF1565C0) else Color(0xFFE8ECE9),
+                                        modifier = Modifier.clickable { selectedMonthIndex = index }
+                                    ) {
+                                        Text(
+                                            text = name,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (isSelected) Color.White else Color(0xFF0F172A),
+                                            fontWeight = FontWeight.ExtraBold,
+                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(4.dp))
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                val isViewingCurrentMonth =
+                                    selectedYear == currentCal.get(Calendar.YEAR) &&
+                                        selectedMonthIndex == currentCal.get(Calendar.MONTH)
+                                if (!isViewingCurrentMonth) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFF1565C0),
+                                        modifier = Modifier
+                                            .clickable {
+                                                selectedYear = currentCal.get(Calendar.YEAR)
+                                                selectedMonthIndex = currentCal.get(Calendar.MONTH)
+                                            }
+                                            .testTag("btn_loan_sheet_jump_today")
+                                    ) {
+                                        Text(
+                                            text = "আজ",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = Color.White,
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+                                IconButton(onClick = { selectedYear-- }, modifier = Modifier.size(24.dp)) {
+                                    Icon(Icons.Default.ChevronLeft, contentDescription = "Previous Year", modifier = Modifier.size(16.dp))
+                                }
+                                Text(
+                                    text = "$selectedYear",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF1565C0)
+                                )
+                                IconButton(onClick = { selectedYear++ }, modifier = Modifier.size(24.dp)) {
+                                    Icon(Icons.Default.ChevronRight, contentDescription = "Next Year", modifier = Modifier.size(16.dp))
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFDBEAFE),
+                                    border = BorderStroke(1.dp, Color(0xFF1565C0)),
+                                    modifier = Modifier
+                                        .clickable {
+                                            preselectedWeekForDateUpdate = null
+                                            showLoanSheetDateUpdateDialog = true
+                                        }
+                                        .testTag("btn_loan_sheet_update_date")
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.EditCalendar,
+                                            contentDescription = "তারিখ আপডেট",
+                                            tint = Color(0xFF1565C0),
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            text = "তারিখ",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF1565C0),
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                        ) {
+                            FullPageLoanSheetTableView(
+                                monthGroups = twoMonthsGroups,
+                                members = members,
+                                loansList = loansList,
+                                installmentsList = installmentsList,
+                                onHeaderDateClick = { friday ->
+                                    preselectedWeekForDateUpdate = friday
+                                    showLoanSheetDateUpdateDialog = true
+                                },
+                                onCellClick = { member, friday ->
+                                    val hasActive = activeLoans.any { it.memberId == member.id }
+                                    val winStart = fridayWeekWindowStart(friday.dateMillis)
+                                    val winEnd = fridayWeekWindowEnd(friday.dateMillis)
+                                    val hasInstInWeek = installmentsList.any {
+                                        it.memberId == member.id && it.paymentDate in winStart..winEnd
+                                    }
+                                    if (hasActive || hasInstInWeek) {
+                                        showSheetCellDialog = member to friday
+                                    } else {
+                                        selectedMemberForNewLoan = member
+                                        showNewLoanDialog = true
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+                1 -> {
                     // Active Loans
                     Column(modifier = Modifier.fillMaxSize()) {
                         if (activeLoans.isNotEmpty()) {
@@ -471,7 +569,7 @@ fun LoansScreen(
                         }
                     }
                 }
-                1 -> {
+                2 -> {
                     // Installment Payments History
                     if (installmentsList.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
@@ -570,7 +668,7 @@ fun LoansScreen(
                         }
                     }
                 }
-                2 -> {
+                3 -> {
                     // All Loans (Active & Closed)
                     Column(modifier = Modifier.fillMaxSize()) {
                         if (loansList.isNotEmpty()) {
@@ -684,6 +782,7 @@ fun LoansScreen(
             activeLoans = activeLoans,
             preselectedLoan = selectedLoanForCollection,
             currentUser = currentUser,
+            installmentsList = installmentsList,
             onDismiss = { showCollectDialog = false },
             onSubmit = { loan, amount, penalty, notes, paymentDateMillis ->
                 viewModel.collectInstallment(
@@ -695,6 +794,108 @@ fun LoansScreen(
                     paymentDate = paymentDateMillis,
                     onComplete = { showCollectDialog = false }
                 )
+            }
+        )
+    }
+
+    showSheetCellDialog?.let { (member, friday) ->
+        val memberActiveLoan = activeLoans.firstOrNull { it.memberId == member.id }
+        val windowStart = fridayWeekWindowStart(friday.dateMillis)
+        val windowEnd = fridayWeekWindowEnd(friday.dateMillis)
+        val existingCellInstallments = remember(installmentsList, member.id, windowStart, windowEnd) {
+            installmentsList.filter {
+                it.memberId == member.id && it.paymentDate in windowStart..windowEnd
+            }
+        }
+        val memberAllInstallments = remember(installmentsList, member.id) {
+            installmentsList.filter { it.memberId == member.id }
+        }
+        RecordFridayCollectionDialog(
+            member = member,
+            friday = friday,
+            activeLoan = memberActiveLoan,
+            currentUser = currentUser,
+            isLoanOnlyMode = true,
+            existingSavings = emptyList(),
+            existingInstallments = existingCellInstallments,
+            memberAllSavings = emptyList(),
+            memberAllInstallments = memberAllInstallments,
+            onUpdateInstallmentDate = { pay, newMillis ->
+                viewModel.updateInstallmentPaymentDate(pay, newMillis)
+            },
+            onDismiss = { showSheetCellDialog = null },
+            onSubmit = { savingsAmount, loanAmount, penalty, _, selectedDateMillis, selectedDateLabel ->
+                viewModel.recordFridayCellCollection(
+                    member = member,
+                    savingsAmount = savingsAmount,
+                    loanAmount = loanAmount,
+                    activeLoan = memberActiveLoan,
+                    penalty = penalty,
+                    fridayDateMillis = selectedDateMillis,
+                    fridayLabel = selectedDateLabel,
+                    collectedBy = currentUser.fullName,
+                    role = currentUser.role,
+                    onComplete = {
+                        showSheetCellDialog = null
+                    }
+                )
+            }
+        )
+    }
+
+    if (showLoanSheetDateUpdateDialog) {
+        WeeklyDateUpdateDialog(
+            monthGroups = twoMonthsGroups,
+            initialWeek = preselectedWeekForDateUpdate,
+            savingsList = savingsList,
+            installmentsList = installmentsList,
+            onApplyWeekColumnDate = { targetWeek, newMillis ->
+                val windowStart = fridayWeekWindowStart(targetWeek.dateMillis)
+                val windowEnd = fridayWeekWindowEnd(targetWeek.dateMillis)
+                val matchingSavings = savingsList.filter {
+                    it.date in windowStart..windowEnd && it.type == "DEPOSIT"
+                }
+                val matchingInstallments = installmentsList.filter {
+                    it.paymentDate in windowStart..windowEnd
+                }
+                if (targetWeek.columnKey.isNotBlank()) {
+                    WeeklyCollectionDatePrefs.saveOverride(context, targetWeek.columnKey, newMillis)
+                    customDateOverrides = WeeklyCollectionDatePrefs.loadAllOverrides(context)
+                }
+                viewModel.updateWeeklyEntriesDate(
+                    savingsTransactions = matchingSavings,
+                    installmentPayments = matchingInstallments,
+                    newDateMillis = newMillis
+                )
+            },
+            onResetWeekColumnDate = { targetWeek ->
+                val windowStart = fridayWeekWindowStart(targetWeek.dateMillis)
+                val windowEnd = fridayWeekWindowEnd(targetWeek.dateMillis)
+                val matchingSavings = savingsList.filter {
+                    it.date in windowStart..windowEnd && it.type == "DEPOSIT"
+                }
+                val matchingInstallments = installmentsList.filter {
+                    it.paymentDate in windowStart..windowEnd
+                }
+                if (targetWeek.columnKey.isNotBlank()) {
+                    WeeklyCollectionDatePrefs.clearOverride(context, targetWeek.columnKey)
+                    customDateOverrides = WeeklyCollectionDatePrefs.loadAllOverrides(context)
+                }
+                viewModel.updateWeeklyEntriesDate(
+                    savingsTransactions = matchingSavings,
+                    installmentPayments = matchingInstallments,
+                    newDateMillis = targetWeek.defaultDateMillis
+                )
+            },
+            onUpdateSingleSavingsDate = { tx, newMillis ->
+                viewModel.updateSavingsTransactionDate(tx, newMillis)
+            },
+            onUpdateSingleInstallmentDate = { pay, newMillis ->
+                viewModel.updateInstallmentPaymentDate(pay, newMillis)
+            },
+            onDismiss = {
+                showLoanSheetDateUpdateDialog = false
+                preselectedWeekForDateUpdate = null
             }
         )
     }
@@ -1651,6 +1852,7 @@ fun CollectInstallmentDialog(
     activeLoans: List<Loan>,
     preselectedLoan: Loan?,
     currentUser: User,
+    installmentsList: List<InstallmentPayment> = emptyList(),
     onDismiss: () -> Unit,
     onSubmit: (Loan, Double, Double, String, Long) -> Unit
 ) {
@@ -1664,6 +1866,12 @@ fun CollectInstallmentDialog(
     var notes by remember { mutableStateOf("") }
     var paymentDateMillis by remember { mutableStateOf(System.currentTimeMillis()) }
     var error by remember { mutableStateOf<String?>(null) }
+    val isDuplicateDate = remember(selectedLoan, paymentDateMillis, installmentsList) {
+        val targetMemberId = selectedLoan?.memberId ?: return@remember false
+        installmentsList.any {
+            it.memberId == targetMemberId && SamitiDateUtils.isSameLocalDay(it.paymentDate, paymentDateMillis)
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -1839,6 +2047,26 @@ fun CollectInstallmentDialog(
                     accentColor = Color(0xFFB57300)
                 )
 
+                if (isDuplicateDate) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFFEF2F2),
+                        border = BorderStroke(1.dp, Color(0xFFFCA5A5)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("warning_duplicate_installment_date")
+                    ) {
+                        Text(
+                            text = "এই তারিখে (${SamitiDateUtils.formatShortDate(paymentDateMillis)}) ইতিমধ্যে কিস্তি আদায় করা হয়েছে! এক তারিখে দুইবার সাবমিট হবে না।",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFB91C1C),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(10.dp))
 
                 // Notes
@@ -1877,6 +2105,7 @@ fun CollectInstallmentDialog(
 
                     Button(
                         onClick = {
+                            if (isDuplicateDate) return@Button
                             val loan = selectedLoan
                             val amount = amountText.toDoubleOrNull()
                             val penalty = penaltyText.toDoubleOrNull() ?: 0.0
@@ -1890,6 +2119,7 @@ fun CollectInstallmentDialog(
                             }
                             onSubmit(loan, amount, penalty, notes, paymentDateMillis)
                         },
+                        enabled = !isDuplicateDate,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB57300)),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                         modifier = Modifier.weight(1.35f).testTag("btn_confirm_collect_installment")

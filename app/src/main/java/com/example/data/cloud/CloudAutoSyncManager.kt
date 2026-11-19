@@ -194,12 +194,14 @@ class CloudAutoSyncManager(
     fun pushMemberAsync(memberCode: String) {
         if (activeUserId == null && currentFirebaseUid() == null) return
         scope.launch {
-            try {
-                val member = database.memberDao().getMemberByCode(memberCode) ?: return@launch
-                syncSource.upsertMember(member)
-                markSyncedNow()
-            } catch (e: Exception) {
-                Log.w(TAG, "Background member sync deferred: ${e.message}")
+            syncMutex.withLock {
+                try {
+                    val member = database.memberDao().getMemberByCode(memberCode) ?: return@withLock
+                    syncSource.upsertMember(member)
+                    markSyncedNow()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Background member sync deferred: ${e.message}")
+                }
             }
         }
     }
@@ -207,14 +209,16 @@ class CloudAutoSyncManager(
     fun pushSavingsByReceiptAsync(receiptNumber: String, memberCode: String) {
         if (activeUserId == null && currentFirebaseUid() == null) return
         scope.launch {
-            try {
-                database.memberDao().getMemberByCode(memberCode)?.let { syncSource.upsertMember(it) }
-                database.savingsDao().getTransactionByReceipt(receiptNumber)?.let {
-                    syncSource.createSavingsTransactionIfMissing(it)
+            syncMutex.withLock {
+                try {
+                    database.memberDao().getMemberByCode(memberCode)?.let { syncSource.upsertMember(it) }
+                    database.savingsDao().getTransactionByReceipt(receiptNumber)?.let {
+                        syncSource.createSavingsTransactionIfMissing(it)
+                    }
+                    markSyncedNow()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Background savings sync deferred: ${e.message}")
                 }
-                markSyncedNow()
-            } catch (e: Exception) {
-                Log.w(TAG, "Background savings sync deferred: ${e.message}")
             }
         }
     }
@@ -226,21 +230,23 @@ class CloudAutoSyncManager(
     ) {
         if (activeUserId == null && currentFirebaseUid() == null) return
         scope.launch {
-            try {
-                database.memberDao().getMemberByCode(memberCode)?.let { syncSource.upsertMember(it) }
-                val loan = database.loanDao().getLoanByMemberCodeAndDate(memberCode, disbursedDate)
-                if (loan != null) {
-                    syncSource.upsertLoan(loan)
-                    if (!receiptNumber.isNullOrBlank()) {
-                        database.installmentDao().getPaymentByReceipt(receiptNumber)?.let { payment ->
-                            val loanKey = FirestoreDocIds.loanKey(loan.memberCode, loan.disbursedDate)
-                            syncSource.createInstallmentPaymentIfMissing(payment, loanKey)
+            syncMutex.withLock {
+                try {
+                    database.memberDao().getMemberByCode(memberCode)?.let { syncSource.upsertMember(it) }
+                    val loan = database.loanDao().getLoanByMemberCodeAndDate(memberCode, disbursedDate)
+                    if (loan != null) {
+                        syncSource.upsertLoan(loan)
+                        if (!receiptNumber.isNullOrBlank()) {
+                            database.installmentDao().getPaymentByReceipt(receiptNumber)?.let { payment ->
+                                val loanKey = FirestoreDocIds.loanKey(loan.memberCode, loan.disbursedDate)
+                                syncSource.createInstallmentPaymentIfMissing(payment, loanKey)
+                            }
                         }
                     }
+                    markSyncedNow()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Background loan/installment sync deferred: ${e.message}")
                 }
-                markSyncedNow()
-            } catch (e: Exception) {
-                Log.w(TAG, "Background loan/installment sync deferred: ${e.message}")
             }
         }
     }
@@ -485,12 +491,33 @@ class CloudAutoSyncManager(
         val savingsDao = database.savingsDao()
         val installmentDao = database.installmentDao()
 
+        val cloudSavingsReceipts = cachedCloudSavings
+            .map { it.receiptNumber.ifBlank { it.id } }
+            .filter { it.isNotBlank() }
+            .toSet()
+        val cloudInstallmentReceipts = cachedCloudInstallments
+            .map { it.receiptNumber.ifBlank { it.id } }
+            .filter { it.isNotBlank() }
+            .toSet()
+        val localPendingMemberCodes = buildSet {
+            savingsDao.getAllTransactionsList().forEach { tx ->
+                if (tx.receiptNumber.isBlank() || tx.receiptNumber !in cloudSavingsReceipts) {
+                    add(tx.memberCode)
+                }
+            }
+            installmentDao.getAllPaymentsList().forEach { pay ->
+                if (pay.receiptNumber.isBlank() || pay.receiptNumber !in cloudInstallmentReceipts) {
+                    add(pay.memberCode)
+                }
+            }
+        }
+
         for (remote in cachedCloudMembers) {
             if (remote.memberCode.isBlank()) continue
             val existing = memberDao.getMemberByCode(remote.memberCode)
             if (existing == null) {
                 memberDao.insertMember(remote.toRoomMember())
-            } else {
+            } else if (remote.memberCode !in localPendingMemberCodes) {
                 val merged = remote.toRoomMember(existingLocalId = existing.id)
                 if (merged != existing) {
                     memberDao.updateMember(merged)
@@ -507,7 +534,7 @@ class CloudAutoSyncManager(
             )
             if (existing == null) {
                 loanDao.insertLoan(remote.toRoomLoan(resolvedMemberId = localMember.id))
-            } else {
+            } else if (remote.memberCode !in localPendingMemberCodes) {
                 val merged = remote.toRoomLoan(
                     resolvedMemberId = localMember.id,
                     existingLocalId = existing.id

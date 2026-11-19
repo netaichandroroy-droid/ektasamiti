@@ -228,7 +228,7 @@ class SamitiViewModel(
         onComplete: () -> Unit
     ) {
         viewModelScope.launch {
-            if (savingsPlan == "WEEKLY" && repository.hasWeeklyCollectionOnDate(member.id, customDate)) {
+            if (savingsPlan == "WEEKLY" && repository.hasSavingsDepositOnDate(member.id, customDate)) {
                 val dateStr = SamitiDateUtils.formatShortDate(customDate)
                 _snackbarMessage.value = "${member.name} এর জন্য $dateStr তারিখে আগেই সাবমিট করা হয়েছে — এক তারিখে দুইবার সাবমিট হবে না!"
                 _activeSuccessPopup.value = SuccessPopupData(
@@ -281,7 +281,7 @@ class SamitiViewModel(
             val submittedIds = mutableSetOf<Long>()
             for ((member, amount) in collections) {
                 if (amount > 0.0) {
-                    if (repository.hasWeeklyCollectionOnDate(member.id, fridayDateMillis)) {
+                    if (repository.hasSavingsDepositOnDate(member.id, fridayDateMillis)) {
                         skippedDuplicateCount++
                         continue
                     }
@@ -350,7 +350,10 @@ class SamitiViewModel(
             val didSavings = savingsAmount > 0.0
             val didLoan = loanAmount > 0.0 && activeLoan != null
 
-            if ((didSavings || didLoan) && repository.hasWeeklyCollectionOnDate(member.id, fridayDateMillis)) {
+            val duplicateSavings = didSavings && repository.hasSavingsDepositOnDate(member.id, fridayDateMillis)
+            val duplicateLoan = didLoan && repository.hasInstallmentPaymentOnDate(member.id, fridayDateMillis)
+
+            if (duplicateSavings || duplicateLoan) {
                 val dateStr = SamitiDateUtils.formatShortDate(fridayDateMillis)
                 _snackbarMessage.value = "${member.name} এর জন্য $dateStr তারিখে আগেই সাবমিট করা হয়েছে — এক তারিখে দুইবার সাবমিট হবে না!"
                 _activeSuccessPopup.value = SuccessPopupData(
@@ -549,6 +552,17 @@ class SamitiViewModel(
         onComplete: () -> Unit
     ) {
         viewModelScope.launch {
+            if (repository.hasInstallmentPaymentOnDate(loan.memberId, paymentDate)) {
+                val dateStr = SamitiDateUtils.formatShortDate(paymentDate)
+                _snackbarMessage.value = "${loan.memberName} এর জন্য $dateStr তারিখে আগেই কিস্তি সাবমিট করা হয়েছে — এক তারিখে দুইবার সাবমিট হবে না!"
+                _activeSuccessPopup.value = SuccessPopupData(
+                    title = "এক তারিখে দুইবার সাবমিট হবে না!",
+                    message = "${loan.memberName} (${loan.memberCode}) এর জন্য $dateStr তারিখে ইতিমধ্যে কিস্তি আদায় এন্ট্রি রয়েছে।",
+                    isWarning = true
+                )
+                onComplete()
+                return@launch
+            }
             val payment = repository.collectInstallment(
                 loan = loan,
                 amount = amount,

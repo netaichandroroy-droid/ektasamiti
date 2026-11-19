@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollTo
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.cloud.CloudAutoSyncManager
@@ -52,6 +53,8 @@ class StartupCrashResilienceTest {
         composeRule.onNodeWithTag("btn_login").assertIsDisplayed()
         composeRule.onNodeWithTag("input_email").assertIsDisplayed()
         composeRule.onNodeWithTag("input_password").assertIsDisplayed()
+        composeRule.onNodeWithTag("btn_google_sign_in").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("text_samiti_google_account").performScrollTo().assertIsDisplayed()
     }
 
     @Test

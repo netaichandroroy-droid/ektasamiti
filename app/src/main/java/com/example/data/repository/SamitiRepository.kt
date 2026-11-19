@@ -48,8 +48,13 @@ class SamitiRepository(
     suspend fun getUserById(userId: Long): User? = userDao.getUserById(userId)
 
     suspend fun getUserByEmail(email: String): User? {
-        val user = userDao.getUserByEmail(email.trim())
-        return if (user?.isActive == true) user else null
+        val clean = email.trim()
+        if (clean.isEmpty()) return null
+        val exact = userDao.getUserByEmail(clean)
+        if (exact != null && exact.isActive) return exact
+        return userDao.getAllUsersList().firstOrNull {
+            it.isActive && it.email.equals(clean, ignoreCase = true)
+        }
     }
 
     suspend fun verifyAdminCredentials(email: String, password: String): Boolean {
@@ -144,12 +149,12 @@ class SamitiRepository(
     fun getSavingsForMember(memberId: Long): Flow<List<SavingsTransaction>> =
         savingsDao.getTransactionsForMemberFlow(memberId)
 
-    suspend fun hasWeeklyCollectionOnDate(memberId: Long, dateMillis: Long): Boolean {
+    suspend fun hasSavingsDepositOnDate(memberId: Long, dateMillis: Long): Boolean {
         val cal = java.util.Calendar.getInstance().apply { timeInMillis = dateMillis }
         val targetYear = cal.get(java.util.Calendar.YEAR)
         val targetDay = cal.get(java.util.Calendar.DAY_OF_YEAR)
 
-        val hasDepositOnDay = savingsDao.getAllTransactionsList().any { tx ->
+        return savingsDao.getAllTransactionsList().any { tx ->
             if (tx.memberId != memberId || tx.type != "DEPOSIT" || tx.note == "প্রারম্ভিক সঞ্চয় জমা") {
                 false
             } else {
@@ -158,7 +163,12 @@ class SamitiRepository(
                     txCal.get(java.util.Calendar.DAY_OF_YEAR) == targetDay
             }
         }
-        if (hasDepositOnDay) return true
+    }
+
+    suspend fun hasInstallmentPaymentOnDate(memberId: Long, dateMillis: Long): Boolean {
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = dateMillis }
+        val targetYear = cal.get(java.util.Calendar.YEAR)
+        val targetDay = cal.get(java.util.Calendar.DAY_OF_YEAR)
 
         return installmentDao.getAllPaymentsList().any { pay ->
             if (pay.memberId != memberId) {
@@ -169,6 +179,11 @@ class SamitiRepository(
                     payCal.get(java.util.Calendar.DAY_OF_YEAR) == targetDay
             }
         }
+    }
+
+    suspend fun hasWeeklyCollectionOnDate(memberId: Long, dateMillis: Long): Boolean {
+        return hasSavingsDepositOnDate(memberId, dateMillis) ||
+            hasInstallmentPaymentOnDate(memberId, dateMillis)
     }
 
     suspend fun recordSavingsDeposit(

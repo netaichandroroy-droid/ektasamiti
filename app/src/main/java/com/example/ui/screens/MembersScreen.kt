@@ -53,6 +53,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -69,6 +72,9 @@ import com.example.ui.components.DatePickerField
 import com.example.ui.components.SamitiDateUtils
 import com.example.ui.viewmodel.SamitiViewModel
 import java.util.Calendar
+
+val IsSubmittedBlueKey = SemanticsPropertyKey<Boolean>("IsSubmittedBlue")
+var SemanticsPropertyReceiver.isSubmittedBlue by IsSubmittedBlueKey
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -193,21 +199,23 @@ fun MembersScreen(
                     ) {
                         itemsIndexed(members, key = { _, m -> m.id }) { index, member ->
                             val (weekStart, weekEnd) = activeWeekWindow
+                            val nowMillis = remember { System.currentTimeMillis() }
                             val isSubmitted = member.id in submittedWeeklyMemberIds ||
                                 savingsList.any { tx ->
                                     tx.memberId == member.id &&
                                         tx.type == "DEPOSIT" &&
                                         tx.savingsPlan == "WEEKLY" &&
                                         tx.note != "প্রারম্ভিক সঞ্চয় জমা" &&
-                                        tx.date in weekStart..weekEnd
+                                        (tx.date in weekStart..weekEnd || SamitiDateUtils.isSameLocalDay(tx.date, nowMillis))
                                 } ||
                                 installmentsList.any { pay ->
-                                    pay.memberId == member.id && pay.paymentDate in weekStart..weekEnd
+                                    pay.memberId == member.id &&
+                                        (pay.paymentDate in weekStart..weekEnd || SamitiDateUtils.isSameLocalDay(pay.paymentDate, nowMillis))
                                 }
                             MemberListRow(
                                 member = member,
                                 isStriped = index % 2 == 1,
-                                showSubmitButton = !isSubmitted,
+                                isSubmitted = isSubmitted,
                                 onClick = { viewModel.openPassbook(member) },
                                 onSubmitClick = { memberForWeeklySubmit = member }
                             )
@@ -267,10 +275,13 @@ fun MembersScreen(
 fun MemberListRow(
     member: Member,
     isStriped: Boolean,
-    showSubmitButton: Boolean = true,
+    isSubmitted: Boolean = false,
     onClick: () -> Unit,
     onSubmitClick: () -> Unit = {}
 ) {
+    val submittedBlueColor = Color(0xFF1D4ED8)
+    val submitButtonColor = if (isSubmitted) submittedBlueColor else MaterialTheme.colorScheme.primary
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -302,28 +313,30 @@ fun MemberListRow(
                 color = Color(0xFF0F172A),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(if (showSubmitButton) 0.42f else 1f)
+                modifier = Modifier.weight(0.42f)
             )
-            if (showSubmitButton) {
-                Button(
-                    onClick = onSubmitClick,
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                    modifier = Modifier
-                        .weight(0.58f)
-                        .heightIn(min = 48.dp)
-                        .testTag("btn_member_submit_${member.memberCode}")
-                ) {
-                    Text(
-                        text = "${member.name} - সাবমিট",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+            Button(
+                onClick = onSubmitClick,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = submitButtonColor,
+                    contentColor = Color.White
+                ),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                modifier = Modifier
+                    .weight(0.58f)
+                    .heightIn(min = 48.dp)
+                    .semantics { isSubmittedBlue = isSubmitted }
+                    .testTag("btn_member_submit_${member.memberCode}")
+            ) {
+                Text(
+                    text = "${member.name} - সাবমিট",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
         Text(
