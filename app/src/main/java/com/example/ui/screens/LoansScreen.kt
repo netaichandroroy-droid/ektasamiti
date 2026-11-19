@@ -489,11 +489,16 @@ fun LoansScreen(
                                     showLoanSheetDateUpdateDialog = true
                                 },
                                 onCellClick = { member, friday ->
-                                    val hasActive = activeLoans.any { it.memberId == member.id }
+                                    val hasActive = activeLoans.any {
+                                        if (member.id > 0L) it.memberId == member.id
+                                        else it.memberId <= 0L && it.memberCode == member.memberCode
+                                    }
                                     val winStart = fridayWeekWindowStart(friday.dateMillis)
                                     val winEnd = fridayWeekWindowEnd(friday.dateMillis)
                                     val hasInstInWeek = installmentsList.any {
-                                        it.memberId == member.id && it.paymentDate in winStart..winEnd
+                                        (if (member.id > 0L) it.memberId == member.id
+                                        else it.memberId <= 0L && it.memberCode == member.memberCode) &&
+                                            it.paymentDate in winStart..winEnd
                                     }
                                     if (hasActive || hasInstInWeek) {
                                         showSheetCellDialog = member to friday
@@ -772,6 +777,21 @@ fun LoansScreen(
                     disbursedDate = disbursedDateMillis,
                     onComplete = { showNewLoanDialog = false }
                 )
+            },
+            onSubmitNonMember = { borrowerName, borrowerMobile, principal, rate, charge, installments, freq, purpose, disbursedDateMillis ->
+                viewModel.disburseNonMemberLoan(
+                    borrowerName = borrowerName,
+                    borrowerMobile = borrowerMobile,
+                    principalAmount = principal,
+                    chargeAmount = charge,
+                    totalInstallments = installments,
+                    frequency = freq,
+                    purpose = purpose,
+                    disbursedBy = currentUser.fullName,
+                    interestRate = rate,
+                    disbursedDate = disbursedDateMillis,
+                    onComplete = { showNewLoanDialog = false }
+                )
             }
         )
     }
@@ -799,16 +819,24 @@ fun LoansScreen(
     }
 
     showSheetCellDialog?.let { (member, friday) ->
-        val memberActiveLoan = activeLoans.firstOrNull { it.memberId == member.id }
+        val memberActiveLoan = activeLoans.firstOrNull {
+            if (member.id > 0L) it.memberId == member.id
+            else it.memberId <= 0L && it.memberCode == member.memberCode
+        }
         val windowStart = fridayWeekWindowStart(friday.dateMillis)
         val windowEnd = fridayWeekWindowEnd(friday.dateMillis)
-        val existingCellInstallments = remember(installmentsList, member.id, windowStart, windowEnd) {
+        val existingCellInstallments = remember(installmentsList, member.id, member.memberCode, windowStart, windowEnd) {
             installmentsList.filter {
-                it.memberId == member.id && it.paymentDate in windowStart..windowEnd
+                (if (member.id > 0L) it.memberId == member.id
+                else it.memberId <= 0L && it.memberCode == member.memberCode) &&
+                    it.paymentDate in windowStart..windowEnd
             }
         }
-        val memberAllInstallments = remember(installmentsList, member.id) {
-            installmentsList.filter { it.memberId == member.id }
+        val memberAllInstallments = remember(installmentsList, member.id, member.memberCode) {
+            installmentsList.filter {
+                if (member.id > 0L) it.memberId == member.id
+                else it.memberId <= 0L && it.memberCode == member.memberCode
+            }
         }
         RecordFridayCollectionDialog(
             member = member,
@@ -985,14 +1013,34 @@ fun LoanItemCard(
                 verticalAlignment = Alignment.Top
             ) {
                 Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = loan.memberName,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF111827)
+                        )
+                        if (loan.memberId <= 0L) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFFF3E8FF),
+                                border = BorderStroke(1.dp, Color(0xFFA855F7))
+                            ) {
+                                Text(
+                                    text = "মেম্বার ছাড়া",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF7E22CE),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
                     Text(
-                        text = loan.memberName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color(0xFF111827)
-                    )
-                    Text(
-                        text = "হিসাব: ${loan.memberCode} | মোবা: ${loan.memberMobile}",
+                        text = "হিসাব: ${loan.memberCode} | মোবা: ${loan.memberMobile.ifBlank { "—" }}",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF374151)
@@ -1462,9 +1510,17 @@ fun NewLoanDisbursalDialog(
     preselectedMember: Member?,
     currentUser: User,
     onDismiss: () -> Unit,
-    onSubmit: (Member, Double, Double, Double, Int, String, String, Long) -> Unit
+    onSubmit: (Member, Double, Double, Double, Int, String, String, Long) -> Unit,
+    onSubmitNonMember: ((String, String, Double, Double, Double, Int, String, String, Long) -> Unit)? = null
 ) {
-    var selectedMember by remember { mutableStateOf(preselectedMember ?: members.firstOrNull()) }
+    var isNonMemberLoan by remember(preselectedMember, members) {
+        mutableStateOf(preselectedMember == null && members.isEmpty())
+    }
+    var selectedMember by remember(preselectedMember, members) {
+        mutableStateOf(preselectedMember ?: members.firstOrNull())
+    }
+    var nonMemberName by remember { mutableStateOf("") }
+    var nonMemberMobile by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(false) }
 
     var principalText by remember { mutableStateOf("20000") }
@@ -1512,92 +1568,179 @@ fun NewLoanDisbursalDialog(
                     color = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = "মূল ঋণ, সুদের হার (%) ও কিস্তির সময়সূচী নির্ধারণ করুন",
+                    text = "সদস্য অথবা মেম্বার ছাড়াই নাম লিখে মূল ঋণ, সুদের হার ও কিস্তির সময়সূচী নির্ধারণ করুন",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF4B5563)
                 )
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                if (members.isNotEmpty()) {
-                    Text(
-                        text = "নাম নির্বাচন করুন:",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                // Borrower Mode Toggle: Member vs Non-Member (মেম্বার ছাড়া)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = !isNonMemberLoan,
+                        onClick = {
+                            if (members.isNotEmpty()) {
+                                isNonMemberLoan = false
+                                if (selectedMember == null) selectedMember = members.firstOrNull()
+                                error = null
+                            } else {
+                                error = "এখনো কোনো সদস্য নিবন্ধিত নেই — মেম্বার ছাড়াই ঋণ দিন"
+                            }
+                        },
+                        enabled = members.isNotEmpty(),
+                        label = {
+                            Text(
+                                text = "সদস্য (${members.size})",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("chip_loan_borrower_member")
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        items(members, key = { it.id }) { m ->
-                            val isSelected = selectedMember?.id == m.id
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFFF1F5F9),
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFFCBD5E1)
-                                ),
-                                modifier = Modifier
-                                    .heightIn(min = 48.dp)
-                                    .clickable {
-                                        selectedMember = m
-                                        error = null
-                                    }
-                                    .testTag("chip_loan_member_${m.memberCode}")
-                            ) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+
+                    FilterChip(
+                        selected = isNonMemberLoan,
+                        onClick = {
+                            isNonMemberLoan = true
+                            error = null
+                        },
+                        label = {
+                            Text(
+                                text = "মেম্বার ছাড়া (বহিঃস্থ)",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("chip_loan_borrower_non_member")
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (isNonMemberLoan) {
+                    OutlinedTextField(
+                        value = nonMemberName,
+                        onValueChange = {
+                            nonMemberName = it
+                            error = null
+                        },
+                        label = { Text("ঋণগ্রহীতার নাম (মেম্বার ছাড়া) *") },
+                        placeholder = { Text("যেমন: করিম মিয়া") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_non_member_loan_name")
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = nonMemberMobile,
+                        onValueChange = {
+                            nonMemberMobile = it
+                            error = null
+                        },
+                        label = { Text("মোবাইল নম্বর (ঐচ্ছিক)") },
+                        placeholder = { Text("যেমন: 017xxxxxxxx") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_non_member_loan_mobile")
+                    )
+                } else {
+                    if (members.isNotEmpty()) {
+                        Text(
+                            text = "নাম নির্বাচন করুন:",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(members, key = { it.id }) { m ->
+                                val isSelected = selectedMember?.id == m.id
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFFF1F5F9),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFFCBD5E1)
+                                    ),
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .clickable {
+                                            selectedMember = m
+                                            error = null
+                                        }
+                                        .testTag("chip_loan_member_${m.memberCode}")
                                 ) {
-                                    Text(
-                                        text = "${m.memberCode}. ${m.name}",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isSelected) Color.White else Color(0xFF0F172A),
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = "${m.memberCode}. ${m.name}",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) Color.White else Color(0xFF0F172A),
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
                                 }
                             }
                         }
+                        Spacer(modifier = Modifier.height(10.dp))
                     }
-                    Spacer(modifier = Modifier.height(10.dp))
-                }
 
-                // Member selection
-                ExposedDropdownMenuBox(
-                    expanded = expanded,
-                    onExpandedChange = { expanded = !expanded }
-                ) {
-                    OutlinedTextField(
-                        value = selectedMember?.let { "${it.name} (${it.memberCode})" } ?: "সদস্য নির্বাচন করুন",
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("ঋণগ্রহীতা সদস্য") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor()
-                    )
-
-                    ExposedDropdownMenu(
+                    // Member selection
+                    ExposedDropdownMenuBox(
                         expanded = expanded,
-                        onDismissRequest = { expanded = false }
+                        onExpandedChange = { expanded = !expanded }
                     ) {
-                        members.forEach { m ->
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("${m.name} (${m.memberCode})", fontWeight = FontWeight.SemiBold)
-                                        Text("বর্তমান সঞ্চয়: ৳${m.savingsBalance.toInt()} | বকেয়া: ৳${m.totalLoanDue.toInt()}", style = MaterialTheme.typography.labelSmall)
+                        OutlinedTextField(
+                            value = selectedMember?.let { "${it.name} (${it.memberCode})" } ?: "সদস্য নির্বাচন করুন",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("ঋণগ্রহীতা সদস্য") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                            modifier = Modifier.fillMaxWidth().menuAnchor()
+                        )
+
+                        ExposedDropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false }
+                        ) {
+                            members.forEach { m ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("${m.name} (${m.memberCode})", fontWeight = FontWeight.SemiBold)
+                                            Text("বর্তমান সঞ্চয়: ৳${m.savingsBalance.toInt()} | বকেয়া: ৳${m.totalLoanDue.toInt()}", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    },
+                                    onClick = {
+                                        selectedMember = m
+                                        expanded = false
                                     }
-                                },
-                                onClick = {
-                                    selectedMember = m
-                                    expanded = false
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                 }
@@ -1794,7 +1937,11 @@ fun NewLoanDisbursalDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                val loanSubmitLabel = selectedMember?.let { "${it.name} - ঋণ নিশ্চিত" } ?: "ঋণ নিশ্চিত করুন"
+                val loanSubmitLabel = if (isNonMemberLoan) {
+                    nonMemberName.trim().takeIf { it.isNotEmpty() }?.let { "$it - ঋণ নিশ্চিত" } ?: "ঋণ নিশ্চিত করুন"
+                } else {
+                    selectedMember?.let { "${it.name} - ঋণ নিশ্চিত" } ?: "ঋণ নিশ্চিত করুন"
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1814,11 +1961,6 @@ fun NewLoanDisbursalDialog(
 
                     Button(
                         onClick = {
-                            val member = selectedMember
-                            if (member == null) {
-                                error = "সদস্য নির্বাচন করুন"
-                                return@Button
-                            }
                             if (principal <= 0) {
                                 error = "মূল ঋণের পরিমাণ দিন"
                                 return@Button
@@ -1827,7 +1969,31 @@ fun NewLoanDisbursalDialog(
                                 error = "কিস্তির সংখ্যা দিন"
                                 return@Button
                             }
-                            onSubmit(member, principal, interestRate, charge, totalInstallments, frequency, purpose, disbursedDateMillis)
+                            if (isNonMemberLoan) {
+                                val cleanName = nonMemberName.trim()
+                                if (cleanName.isEmpty()) {
+                                    error = "ঋণগ্রহীতার নাম লিখুন"
+                                    return@Button
+                                }
+                                onSubmitNonMember?.invoke(
+                                    cleanName,
+                                    nonMemberMobile.trim(),
+                                    principal,
+                                    interestRate,
+                                    charge,
+                                    totalInstallments,
+                                    frequency,
+                                    purpose,
+                                    disbursedDateMillis
+                                )
+                            } else {
+                                val member = selectedMember
+                                if (member == null) {
+                                    error = "সদস্য নির্বাচন করুন অথবা 'মেম্বার ছাড়া' নির্বাচন করুন"
+                                    return@Button
+                                }
+                                onSubmit(member, principal, interestRate, charge, totalInstallments, frequency, purpose, disbursedDateMillis)
+                            }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
@@ -1867,9 +2033,14 @@ fun CollectInstallmentDialog(
     var paymentDateMillis by remember { mutableStateOf(System.currentTimeMillis()) }
     var error by remember { mutableStateOf<String?>(null) }
     val isDuplicateDate = remember(selectedLoan, paymentDateMillis, installmentsList) {
-        val targetMemberId = selectedLoan?.memberId ?: return@remember false
+        val targetLoan = selectedLoan ?: return@remember false
         installmentsList.any {
-            it.memberId == targetMemberId && SamitiDateUtils.isSameLocalDay(it.paymentDate, paymentDateMillis)
+            val sameBorrower = if (targetLoan.memberId > 0L) {
+                it.memberId == targetLoan.memberId
+            } else {
+                it.loanId == targetLoan.id
+            }
+            sameBorrower && SamitiDateUtils.isSameLocalDay(it.paymentDate, paymentDateMillis)
         }
     }
 

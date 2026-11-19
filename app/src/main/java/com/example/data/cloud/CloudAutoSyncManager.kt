@@ -527,16 +527,17 @@ class CloudAutoSyncManager(
 
         for (remote in cachedCloudLoans) {
             if (remote.memberCode.isBlank() || remote.disbursedDate <= 0L) continue
-            val localMember = memberDao.getMemberByCode(remote.memberCode) ?: continue
+            val localMember = memberDao.getMemberByCode(remote.memberCode)
+            val resolvedMemberId = localMember?.id ?: 0L
             val existing = loanDao.getLoanByMemberCodeAndDate(
                 remote.memberCode,
                 remote.disbursedDate
             )
             if (existing == null) {
-                loanDao.insertLoan(remote.toRoomLoan(resolvedMemberId = localMember.id))
+                loanDao.insertLoan(remote.toRoomLoan(resolvedMemberId = resolvedMemberId))
             } else if (remote.memberCode !in localPendingMemberCodes) {
                 val merged = remote.toRoomLoan(
-                    resolvedMemberId = localMember.id,
+                    resolvedMemberId = resolvedMemberId,
                     existingLocalId = existing.id
                 )
                 if (merged != existing) {
@@ -561,14 +562,15 @@ class CloudAutoSyncManager(
             val receipt = remote.receiptNumber.ifBlank { remote.id }
             if (receipt.isBlank()) continue
             if (installmentDao.getPaymentByReceipt(receipt) == null) {
-                val localMember = memberDao.getMemberByCode(remote.memberCode) ?: continue
+                val localMember = memberDao.getMemberByCode(remote.memberCode)
                 val matchedLoan = allLoans.firstOrNull { loan ->
                     FirestoreDocIds.loanKey(loan.memberCode, loan.disbursedDate) == remote.loanKey
                 } ?: allLoans.firstOrNull { it.memberCode == remote.memberCode } ?: continue
+                val resolvedMemberId = localMember?.id ?: matchedLoan.memberId
                 installmentDao.insertPayment(
                     remote.toRoomPayment(
                         resolvedLoanId = matchedLoan.id,
-                        resolvedMemberId = localMember.id
+                        resolvedMemberId = resolvedMemberId
                     )
                 )
             }

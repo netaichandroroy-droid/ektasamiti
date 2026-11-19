@@ -75,7 +75,26 @@ fun FullPageLoanSheetTableView(
     val dateColWidth = 82.dp
     val borderColor = Color(0xFF1E293B)
 
-    if (members.isEmpty()) {
+    val memberCodes = remember(members) { members.map { it.memberCode }.toSet() }
+    val nonMemberBorrowers = remember(loansList, memberCodes) {
+        loansList
+            .filter { it.memberId <= 0L && it.memberCode.isNotBlank() && it.memberCode !in memberCodes }
+            .groupBy { it.memberCode }
+            .map { (code, groupLoans) ->
+                val latest = groupLoans.first()
+                Member(
+                    id = -latest.id,
+                    memberCode = code,
+                    name = latest.memberName,
+                    mobile = latest.memberMobile
+                )
+            }
+    }
+    val sheetBorrowers = remember(members, nonMemberBorrowers) {
+        members + nonMemberBorrowers
+    }
+
+    if (sheetBorrowers.isEmpty()) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -92,16 +111,17 @@ fun FullPageLoanSheetTableView(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "এখনো কোন সদস্য নিবন্ধিত নেই",
+                    text = "এখনো কোন ঋণ বা সদস্য যুক্ত হয়নি",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF1F2937)
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "নতুন সদস্য যোগ করতে উপরের + আইকনে চাপ দিন",
+                    text = "উপরের \"নতুন ঋণ বিতরণ\" বাটনে চাপ দিয়ে সদস্য বা মেম্বার ছাড়াই ঋণ দিন",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF4B5563)
+                    color = Color(0xFF4B5563),
+                    textAlign = TextAlign.Center
                 )
             }
         }
@@ -111,21 +131,21 @@ fun FullPageLoanSheetTableView(
     val totalTableWidth =
         slColWidth + nameColWidth + loanTotalColWidth + loanDueColWidth + (dateColWidth * allFridays.size)
 
-    val grandLoanTotal = remember(members, loansList) {
-        members.sumOf { member ->
-            val memberLoans = loansList.filter { it.memberId == member.id }
-            val activeLoans = memberLoans.filter { it.status == "ACTIVE" }
+    val grandLoanTotal = remember(sheetBorrowers, loansList) {
+        sheetBorrowers.sumOf { borrower ->
+            val borrowerLoans = loansList.filter { it.matchesSheetBorrower(borrower) }
+            val activeLoans = borrowerLoans.filter { it.status == "ACTIVE" }
             if (activeLoans.isNotEmpty()) {
                 activeLoans.sumOf { it.totalPayable }.toInt()
             } else {
-                memberLoans.sumOf { it.totalPayable }.toInt()
+                borrowerLoans.sumOf { it.totalPayable }.toInt()
             }
         }
     }
 
-    val grandDueTotal = remember(members, loansList) {
-        members.sumOf { member ->
-            loansList.filter { it.memberId == member.id && it.status == "ACTIVE" }
+    val grandDueTotal = remember(sheetBorrowers, loansList) {
+        sheetBorrowers.sumOf { borrower ->
+            loansList.filter { it.matchesSheetBorrower(borrower) && it.status == "ACTIVE" }
                 .sumOf { it.remainingDue }
                 .toInt()
         }
@@ -313,10 +333,11 @@ fun FullPageLoanSheetTableView(
                     .width(totalTableWidth)
                     .weight(1f)
             ) {
-                itemsIndexed(members, key = { _, m -> m.id }) { index, member ->
+                itemsIndexed(sheetBorrowers, key = { _, m -> "${m.id}_${m.memberCode}" }) { index, member ->
                     val sl = index + 1
+                    val isNonMemberRow = member.id <= 0L
                     val rowBg = if (index % 2 == 0) Color(0xFFFFFFFF) else Color(0xFFF4F8F6)
-                    val memberLoans = loansList.filter { it.memberId == member.id }
+                    val memberLoans = loansList.filter { it.matchesSheetBorrower(member) }
                     val activeLoansForMember = memberLoans.filter { it.status == "ACTIVE" }
                     val hasAnyLoan = memberLoans.isNotEmpty()
                     val hasActiveLoan = activeLoansForMember.isNotEmpty()
@@ -359,10 +380,10 @@ fun FullPageLoanSheetTableView(
                             contentAlignment = Alignment.CenterStart
                         ) {
                             Text(
-                                text = member.name,
+                                text = if (isNonMemberRow) "${member.name} (বহিঃস্থ)" else member.name,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = Color(0xFF0F172A),
+                                color = if (isNonMemberRow) Color(0xFF6B21A8) else Color(0xFF0F172A),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -422,7 +443,7 @@ fun FullPageLoanSheetTableView(
                             val windowEnd = fridayWeekWindowEnd(fDate.dateMillis)
 
                             val memberInst = installmentsList.filter {
-                                it.memberId == member.id && it.paymentDate in windowStart..windowEnd
+                                it.matchesSheetBorrower(member) && it.paymentDate in windowStart..windowEnd
                             }
                             val paidInWeek = memberInst.sumOf { it.paidAmount }.toInt()
                             val isPaid = paidInWeek > 0
@@ -539,3 +560,11 @@ fun FullPageLoanSheetTableView(
         }
     }
 }
+
+private fun Loan.matchesSheetBorrower(borrower: Member): Boolean =
+    if (borrower.id > 0L) memberId == borrower.id
+    else memberId <= 0L && memberCode == borrower.memberCode
+
+private fun InstallmentPayment.matchesSheetBorrower(borrower: Member): Boolean =
+    if (borrower.id > 0L) memberId == borrower.id
+    else memberId <= 0L && memberCode == borrower.memberCode

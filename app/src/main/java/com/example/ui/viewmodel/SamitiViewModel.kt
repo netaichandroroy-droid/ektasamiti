@@ -351,7 +351,10 @@ class SamitiViewModel(
             val didLoan = loanAmount > 0.0 && activeLoan != null
 
             val duplicateSavings = didSavings && repository.hasSavingsDepositOnDate(member.id, fridayDateMillis)
-            val duplicateLoan = didLoan && repository.hasInstallmentPaymentOnDate(member.id, fridayDateMillis)
+            val duplicateLoan = didLoan && activeLoan != null && (
+                if (activeLoan.memberId > 0L) repository.hasInstallmentPaymentOnDate(activeLoan.memberId, fridayDateMillis)
+                else repository.hasInstallmentPaymentForLoanOnDate(activeLoan.id, fridayDateMillis)
+            )
 
             if (duplicateSavings || duplicateLoan) {
                 val dateStr = SamitiDateUtils.formatShortDate(fridayDateMillis)
@@ -541,6 +544,51 @@ class SamitiViewModel(
         }
     }
 
+    // Disburse Loan to Non-Member (মেম্বার ছাড়াও ঋণ বিতরণ)
+    fun disburseNonMemberLoan(
+        borrowerName: String,
+        borrowerMobile: String,
+        principalAmount: Double,
+        chargeAmount: Double,
+        totalInstallments: Int,
+        frequency: String,
+        purpose: String,
+        disbursedBy: String,
+        interestRate: Double = if (principalAmount > 0) kotlin.math.round((chargeAmount / principalAmount) * 10000.0) / 100.0 else 0.0,
+        disbursedDate: Long = System.currentTimeMillis(),
+        onComplete: () -> Unit
+    ) {
+        viewModelScope.launch {
+            val loan = repository.disburseNonMemberLoan(
+                borrowerName = borrowerName,
+                borrowerMobile = borrowerMobile,
+                principalAmount = principalAmount,
+                chargeAmount = chargeAmount,
+                totalInstallments = totalInstallments,
+                frequency = frequency,
+                purpose = purpose,
+                disbursedBy = disbursedBy,
+                interestRate = interestRate,
+                disbursedDate = disbursedDate
+            )
+            val freqLabel = if (frequency == "MONTHLY") "মাসিক" else "সাপ্তাহিক"
+            _activeReceipt.value = ReceiptData(
+                title = "ঋণ বিতরণ অনুমোদন পত্র",
+                receiptNumber = "LN-${loan.id}-${loan.memberCode}",
+                memberCode = loan.memberCode,
+                memberName = loan.memberName,
+                transactionType = "ঋণ প্রদান (মেম্বার ছাড়া • সুদ ${com.example.data.model.LoanScheduleCalculator.formatInterestRate(loan.interestRate)}%)",
+                amount = principalAmount,
+                balanceOrDue = loan.totalPayable,
+                collectedBy = disbursedBy,
+                timestamp = loan.disbursedDate,
+                notes = "সুদ/চার্জ: ৳${chargeAmount.toInt()} (${com.example.data.model.LoanScheduleCalculator.formatInterestRate(loan.interestRate)}%) | মোট কিস্তি: $totalInstallments টি ($freqLabel)"
+            )
+            _snackbarMessage.value = "${loan.memberName} কে ৳${principalAmount.toInt()} টাকা ঋণ বিতরণ সম্পন্ন হয়েছে"
+            onComplete()
+        }
+    }
+
     // Collect Installment
     fun collectInstallment(
         loan: Loan,
@@ -552,7 +600,12 @@ class SamitiViewModel(
         onComplete: () -> Unit
     ) {
         viewModelScope.launch {
-            if (repository.hasInstallmentPaymentOnDate(loan.memberId, paymentDate)) {
+            val hasDuplicateOnDate = if (loan.memberId > 0L) {
+                repository.hasInstallmentPaymentOnDate(loan.memberId, paymentDate)
+            } else {
+                repository.hasInstallmentPaymentForLoanOnDate(loan.id, paymentDate)
+            }
+            if (hasDuplicateOnDate) {
                 val dateStr = SamitiDateUtils.formatShortDate(paymentDate)
                 _snackbarMessage.value = "${loan.memberName} এর জন্য $dateStr তারিখে আগেই কিস্তি সাবমিট করা হয়েছে — এক তারিখে দুইবার সাবমিট হবে না!"
                 _activeSuccessPopup.value = SuccessPopupData(

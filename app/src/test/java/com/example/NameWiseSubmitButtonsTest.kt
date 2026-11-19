@@ -111,6 +111,11 @@ class NameWiseSubmitButtonsTest {
         }
         composeRule.onNodeWithText("আজকের সঞ্চয় জমা").assertDoesNotExist()
         composeRule.onNodeWithText("মোট সঞ্চয় তহবিল").assertDoesNotExist()
+        composeRule.onNodeWithText("সঞ্চয় জমা নিন").assertDoesNotExist()
+        composeRule.onNodeWithText("উত্তোলন").assertDoesNotExist()
+        composeRule.onNodeWithText("সকল সঞ্চয় লেনদেন বিবরণী").assertDoesNotExist()
+        composeRule.onNodeWithTag("btn_open_deposit").assertDoesNotExist()
+        composeRule.onNodeWithTag("btn_open_withdraw").assertDoesNotExist()
         composeRule.onNodeWithTag("savings_quick_member_row").assertIsDisplayed()
         composeRule.onNodeWithTag("btn_savings_member_02").assertIsDisplayed().performClick()
         composeRule.waitForIdle()

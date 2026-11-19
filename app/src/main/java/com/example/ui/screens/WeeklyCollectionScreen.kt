@@ -545,11 +545,16 @@ fun WeeklyCollectionScreen(
                             showWeeklyDateUpdateDialog = true
                         },
                         onCellClick = { member, friday ->
-                            val hasActive = activeLoans.any { it.memberId == member.id }
+                            val hasActive = activeLoans.any {
+                                if (member.id > 0L) it.memberId == member.id
+                                else it.memberId <= 0L && it.memberCode == member.memberCode
+                            }
                             val winStart = fridayWeekWindowStart(friday.dateMillis)
                             val winEnd = fridayWeekWindowEnd(friday.dateMillis)
                             val hasInstInWeek = installmentsList.any {
-                                it.memberId == member.id && it.paymentDate in winStart..winEnd
+                                (if (member.id > 0L) it.memberId == member.id
+                                else it.memberId <= 0L && it.memberCode == member.memberCode) &&
+                                    it.paymentDate in winStart..winEnd
                             }
                             if (hasActive || hasInstInWeek) {
                                 showSingleCellDialog = Triple(member, friday, true)
@@ -565,27 +570,36 @@ fun WeeklyCollectionScreen(
 
     // Modal 2: Single Cell Collection Dialog (also supports updating existing cell entry dates)
     showSingleCellDialog?.let { (member, friday, isLoanOnlyMode) ->
-        val memberActiveLoan = activeLoans.firstOrNull { it.memberId == member.id }
+        val memberActiveLoan = activeLoans.firstOrNull {
+            if (member.id > 0L) it.memberId == member.id
+            else it.memberId <= 0L && it.memberCode == member.memberCode
+        }
         val windowStart = fridayWeekWindowStart(friday.dateMillis)
         val windowEnd = fridayWeekWindowEnd(friday.dateMillis)
         val existingCellSavings = remember(savingsList, member.id, windowStart, windowEnd, isLoanOnlyMode) {
-            if (isLoanOnlyMode) emptyList()
+            if (isLoanOnlyMode || member.id <= 0L) emptyList()
             else savingsList.filter {
                 it.memberId == member.id && it.date in windowStart..windowEnd && it.type == "DEPOSIT"
             }
         }
-        val existingCellInstallments = remember(installmentsList, member.id, windowStart, windowEnd) {
+        val existingCellInstallments = remember(installmentsList, member.id, member.memberCode, windowStart, windowEnd) {
             installmentsList.filter {
-                it.memberId == member.id && it.paymentDate in windowStart..windowEnd
+                (if (member.id > 0L) it.memberId == member.id
+                else it.memberId <= 0L && it.memberCode == member.memberCode) &&
+                    it.paymentDate in windowStart..windowEnd
             }
         }
         val memberAllSavings = remember(savingsList, member.id) {
-            savingsList.filter {
+            if (member.id <= 0L) emptyList()
+            else savingsList.filter {
                 it.memberId == member.id && it.type == "DEPOSIT" && it.note != "প্রারম্ভিক সঞ্চয় জমা"
             }
         }
-        val memberAllInstallments = remember(installmentsList, member.id) {
-            installmentsList.filter { it.memberId == member.id }
+        val memberAllInstallments = remember(installmentsList, member.id, member.memberCode) {
+            installmentsList.filter {
+                if (member.id > 0L) it.memberId == member.id
+                else it.memberId <= 0L && it.memberCode == member.memberCode
+            }
         }
         RecordFridayCollectionDialog(
             member = member,
@@ -632,6 +646,21 @@ fun WeeklyCollectionScreen(
             onSubmit = { member, principal, rate, charge, installments, freq, purpose, disbursedDateMillis ->
                 viewModel.disburseLoan(
                     member = member,
+                    principalAmount = principal,
+                    chargeAmount = charge,
+                    totalInstallments = installments,
+                    frequency = freq,
+                    purpose = purpose,
+                    disbursedBy = currentUser.fullName,
+                    interestRate = rate,
+                    disbursedDate = disbursedDateMillis,
+                    onComplete = { memberForNewLoanFromSheet = null }
+                )
+            },
+            onSubmitNonMember = { borrowerName, borrowerMobile, principal, rate, charge, installments, freq, purpose, disbursedDateMillis ->
+                viewModel.disburseNonMemberLoan(
+                    borrowerName = borrowerName,
+                    borrowerMobile = borrowerMobile,
                     principalAmount = principal,
                     chargeAmount = charge,
                     totalInstallments = installments,

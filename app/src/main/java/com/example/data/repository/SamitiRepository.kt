@@ -166,12 +166,30 @@ class SamitiRepository(
     }
 
     suspend fun hasInstallmentPaymentOnDate(memberId: Long, dateMillis: Long): Boolean {
+        if (memberId <= 0L) return false
         val cal = java.util.Calendar.getInstance().apply { timeInMillis = dateMillis }
         val targetYear = cal.get(java.util.Calendar.YEAR)
         val targetDay = cal.get(java.util.Calendar.DAY_OF_YEAR)
 
         return installmentDao.getAllPaymentsList().any { pay ->
             if (pay.memberId != memberId) {
+                false
+            } else {
+                val payCal = java.util.Calendar.getInstance().apply { timeInMillis = pay.paymentDate }
+                payCal.get(java.util.Calendar.YEAR) == targetYear &&
+                    payCal.get(java.util.Calendar.DAY_OF_YEAR) == targetDay
+            }
+        }
+    }
+
+    suspend fun hasInstallmentPaymentForLoanOnDate(loanId: Long, dateMillis: Long): Boolean {
+        if (loanId <= 0L) return false
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = dateMillis }
+        val targetYear = cal.get(java.util.Calendar.YEAR)
+        val targetDay = cal.get(java.util.Calendar.DAY_OF_YEAR)
+
+        return installmentDao.getAllPaymentsList().any { pay ->
+            if (pay.loanId != loanId) {
                 false
             } else {
                 val payCal = java.util.Calendar.getInstance().apply { timeInMillis = pay.paymentDate }
@@ -302,6 +320,56 @@ class SamitiRepository(
                 totalLoanDue = member.totalLoanDue + totalPayable
             )
         )
+        cloudAutoSyncManager?.pushLoanAndInstallmentAsync(loan.memberCode, loan.disbursedDate)
+        return loan.copy(id = loanId)
+    }
+
+    suspend fun nextNonMemberBorrowerCode(): String {
+        val codeRegex = Regex("^NM-(\\d+)$")
+        val existingNumbers = loanDao.getAllLoansList()
+            .mapNotNull { codeRegex.matchEntire(it.memberCode.trim())?.groupValues?.get(1)?.toIntOrNull() }
+        val nextNumber = (existingNumbers.maxOrNull() ?: 0) + 1
+        return String.format(java.util.Locale.US, "NM-%02d", nextNumber)
+    }
+
+    suspend fun disburseNonMemberLoan(
+        borrowerName: String,
+        borrowerMobile: String,
+        principalAmount: Double,
+        chargeAmount: Double,
+        totalInstallments: Int,
+        frequency: String,
+        purpose: String,
+        disbursedBy: String,
+        interestRate: Double = if (principalAmount > 0) ((chargeAmount / principalAmount) * 10000.0).roundToInt() / 100.0 else 0.0,
+        disbursedDate: Long = System.currentTimeMillis()
+    ): Loan {
+        val cleanName = borrowerName.trim()
+        val cleanMobile = borrowerMobile.trim()
+        val borrowerCode = nextNonMemberBorrowerCode()
+        val totalPayable = principalAmount + chargeAmount
+        val perInstallment = ((totalPayable / totalInstallments) * 100.0).roundToInt() / 100.0
+        val loan = Loan(
+            memberId = 0L,
+            memberCode = borrowerCode,
+            memberName = cleanName,
+            memberMobile = cleanMobile,
+            principalAmount = principalAmount,
+            interestRate = interestRate,
+            chargeAmount = chargeAmount,
+            totalPayable = totalPayable,
+            totalPaid = 0.0,
+            remainingDue = totalPayable,
+            totalInstallments = totalInstallments,
+            paidInstallments = 0,
+            perInstallmentAmount = perInstallment,
+            frequency = frequency,
+            disbursedDate = disbursedDate,
+            disbursedBy = disbursedBy,
+            status = "ACTIVE",
+            purpose = purpose.ifBlank { "ব্যবসায়িক বিনিয়োগ" }
+        )
+        val loanId = loanDao.insertLoan(loan)
         cloudAutoSyncManager?.pushLoanAndInstallmentAsync(loan.memberCode, loan.disbursedDate)
         return loan.copy(id = loanId)
     }
