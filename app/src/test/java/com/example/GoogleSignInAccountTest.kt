@@ -77,6 +77,18 @@ class GoogleSignInAccountTest {
     }
 
     @Test
+    fun resolveWebClientIdHandlesPresentAndMissingResourceSafely() {
+        // When google-services.json is present, default_web_client_id resolves from R.string
+        val resolved = GoogleAuthManager.resolveWebClientId(context)
+        assertNotNull(resolved)
+        assertTrue(resolved!!.isNotBlank())
+
+        // When missing (e.g. CI without google-services.json), returns null cleanly without throwing
+        val missing = GoogleAuthManager.resolveStringResByName(context, "non_existent_client_id_field")
+        assertEquals(null, missing)
+    }
+
+    @Test
     fun googleSignInForJadobpurSamitiResolvesAdminAndPersistsSession() = runTest(testDispatcher) {
         val authViewModel = AuthViewModel(repository, sessionPreferences)
         advanceUntilIdle()

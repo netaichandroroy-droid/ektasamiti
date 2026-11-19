@@ -186,10 +186,24 @@ object GoogleAuthManager {
         }
     }
 
-    private fun resolveWebClientId(context: Context): String? {
+    internal fun resolveWebClientId(context: Context): String? {
+        return resolveStringResByName(context, "default_web_client_id")
+    }
+
+    internal fun resolveStringResByName(
+        context: Context,
+        resName: String,
+        rStringClass: Class<*> = R.string::class.java
+    ): String? {
         return try {
-            context.getString(R.string.default_web_client_id).takeIf { it.isNotBlank() }
-        } catch (_: Exception) {
+            val field = rStringClass.getField(resName)
+            val resId = field.getInt(null)
+            if (resId != 0) {
+                context.getString(resId).takeIf { it.isNotBlank() }
+            } else {
+                null
+            }
+        } catch (_: Throwable) {
             null
         }
     }
