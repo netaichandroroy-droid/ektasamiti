@@ -98,6 +98,16 @@ class GoogleSignInAccountTest {
     }
 
     @Test
+    fun checkConfigurationReflectsGoogleServicesResourcePresence() {
+        val status = GoogleAuthManager.checkConfiguration(context)
+        val hasWebClient = GoogleAuthManager.resolveWebClientId(context) != null
+        val hasGoogleAppId = GoogleAuthManager.resolveStringResByName(context, "google_app_id") != null
+        assertEquals(hasWebClient, status.hasWebClientId)
+        assertEquals(hasGoogleAppId, status.hasFirebaseConfig)
+        assertEquals(hasWebClient && hasGoogleAppId, status.isReady)
+    }
+
+    @Test
     fun googleSignInForJadobpurSamitiResolvesAdminAndPersistsSession() = runTest(testDispatcher) {
         val authViewModel = AuthViewModel(repository, sessionPreferences)
         advanceUntilIdle()

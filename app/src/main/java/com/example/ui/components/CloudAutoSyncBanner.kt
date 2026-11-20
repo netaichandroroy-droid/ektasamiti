@@ -20,7 +20,9 @@ import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -31,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,7 +73,9 @@ fun CloudAutoSyncBanner(
             null
         }
     }
+    val configStatus = remember(context) { GoogleAuthManager.checkConfiguration(context) }
     var isSigningIn by remember { mutableStateOf(false) }
+    var showMissingConfigDialog by remember { mutableStateOf(false) }
 
     val timeText = remember(syncState.lastSyncedAtMillis) {
         syncState.lastSyncedAtMillis?.let { ts ->
@@ -209,11 +214,44 @@ fun CloudAutoSyncBanner(
                 }
             }
 
+            if (syncState.status == CloudSyncStatus.NEEDS_GOOGLE_SIGN_IN && !configStatus.isReady) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFFEF3C7),
+                    border = BorderStroke(1.dp, Color(0xFFD97706)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "কনফিগারেশন তথ্য",
+                            tint = Color(0xFF92400E),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "এই APK-তে google-services.json নেই — সমাধান দেখতে বাটনে ট্যাপ করুন।",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF78350F)
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(10.dp))
 
             if (syncState.status == CloudSyncStatus.NEEDS_GOOGLE_SIGN_IN) {
                 Button(
                     onClick = {
+                        if (!configStatus.isReady) {
+                            showMissingConfigDialog = true
+                            return@Button
+                        }
                         val cm = credentialManager
                         if (cm == null) {
                             onFeedbackMessage("এই ডিভাইসে Google সাইন-ইন সেবা পাওয়া যায়নি")
@@ -305,5 +343,47 @@ fun CloudAutoSyncBanner(
                 }
             }
         }
+    }
+
+    if (showMissingConfigDialog) {
+        AlertDialog(
+            onDismissRequest = { showMissingConfigDialog = false },
+            title = {
+                Text(
+                    text = "Google Sign-In সক্রিয় করার নির্দেশনা",
+                    fontWeight = FontWeight.ExtraBold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "এই APK ফাইলে google-services.json যুক্ত না থাকায় Google Sign-In এখন বন্ধ আছে (GitHub থেকে বিল্ড করা হলে এটি আলাদাভাবে যোগ করতে হয়)।",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        text = "সমাধান (যেকোনো ১টি অনুসরণ করুন):",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFF1D4ED8)
+                    )
+                    Text(
+                        text = "১) সরাসরি AI Studio-এর Settings মেনু থেকে APK জেনারেট করে ইনস্টল করুন — সেখানে কনফিগারেশন স্বয়ংক্রিয়ভাবে যুক্ত থাকে।",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        text = "২) অথবা GitHub রিপোজিটরি → Settings → Secrets and variables → Actions → New repository secret-এ GOOGLE_SERVICES_JSON নামে app/google-services.json-এর কনটেন্ট যোগ করে পুনরায় APK বিল্ড করুন।",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { showMissingConfigDialog = false },
+                    modifier = Modifier.testTag("btn_close_google_config_help")
+                ) {
+                    Text("বুঝেছি", fontWeight = FontWeight.Bold)
+                }
+            }
+        )
     }
 }
