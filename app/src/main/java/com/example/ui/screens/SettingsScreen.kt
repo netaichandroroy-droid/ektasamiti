@@ -1,5 +1,8 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
@@ -34,6 +37,7 @@ import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Download
@@ -108,6 +112,7 @@ import com.example.notifications.LoanReminderNotificationHelper
 import com.example.notifications.LoanReminderPreferences
 import com.example.ui.components.AppUpdateAvailableDialog
 import com.example.ui.components.CloudAutoSyncBanner
+import com.example.ui.components.GoogleDriveBackupCard
 import com.example.ui.components.MonthlySummaryPreviewDialog
 import com.example.ui.components.WeeklyCollectionBarChartCard
 import com.example.ui.theme.SilverCardBg
@@ -484,6 +489,15 @@ fun SettingsScreen(
                 onFeedbackMessage = onShowMessage
             )
             Spacer(modifier = Modifier.height(10.dp))
+            GoogleDriveBackupCard(
+                onBuildBackupJson = { viewModel.buildJsonBackupPayload() },
+                onParseBackupJson = { rawJson -> viewModel.parseBackupJson(rawJson) },
+                onConfirmRestoreSnapshot = { snapshot, sourceLabel, onDone ->
+                    viewModel.restoreFromBackupSnapshot(snapshot, sourceLabel, onDone)
+                },
+                onFeedbackMessage = onShowMessage
+            )
+            Spacer(modifier = Modifier.height(10.dp))
             SettingsListGroupCard(testTag = "card_settings_backup") {
                 SettingsOptionRow(
                     icon = Icons.Default.Storage,
@@ -712,6 +726,32 @@ fun SettingsScreen(
                     },
                     testTag = "row_settings_github_repo"
                 )
+
+                val permanentApkUrl = GitHubUpdateChecker.permanentApkDownloadUrl(effectiveGithubRepo)
+                if (permanentApkUrl.isNotBlank()) {
+                    HorizontalDivider(color = SilverCardBorder)
+
+                    SettingsOptionRow(
+                        icon = Icons.Default.ContentCopy,
+                        iconBg = Color(0xFFDCFCE7),
+                        iconTint = Color(0xFF0A6C3C),
+                        title = "স্থায়ী APK ডাউনলোড লিংক",
+                        subtitle = "$permanentApkUrl\n(প্রতি পুশে একই লিংক থাকবে — ট্যাপ করে কপি করুন)",
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            clipboard?.setPrimaryClip(ClipData.newPlainText("Ekta Samiti APK Link", permanentApkUrl))
+                            onShowMessage("স্থায়ী ডাউনলোড লিংক কপি হয়েছে")
+                        },
+                        trailingContent = {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "লিংক কপি করুন",
+                                tint = Color(0xFF0A6C3C)
+                            )
+                        },
+                        testTag = "row_settings_permanent_apk_link"
+                    )
+                }
 
                 HorizontalDivider(color = SilverCardBorder)
 

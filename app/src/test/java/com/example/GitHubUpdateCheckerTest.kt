@@ -120,4 +120,44 @@ class GitHubUpdateCheckerTest {
         composeRule.onNodeWithTag("btn_dismiss_update").performClick()
         assertTrue(dismissed)
     }
+
+    @Test
+    fun permanentApkDownloadUrl_andEktaSamitiAssetPreference_workConsistently() {
+        assertEquals(
+            "https://github.com/nitai/ekta-samiti/releases/latest/download/EktaSamiti.apk",
+            GitHubUpdateChecker.permanentApkDownloadUrl("https://github.com/nitai/ekta-samiti.git")
+        )
+        assertEquals("", GitHubUpdateChecker.permanentApkDownloadUrl("invalid"))
+
+        val releaseJson = """
+            {
+              "tag_name": "v1.0.28018680",
+              "name": "Ekta Samiti v1.0.28018680",
+              "body": "Permanent asset release",
+              "html_url": "https://github.com/nitai/ekta-samiti/releases/tag/v1.0.28018680",
+              "assets": [
+                {
+                  "name": "EktaSamiti-v1.0.28018680.apk",
+                  "browser_download_url": "https://github.com/nitai/ekta-samiti/releases/download/v1.0.28018680/EktaSamiti-v1.0.28018680.apk"
+                },
+                {
+                  "name": "EktaSamiti.apk",
+                  "browser_download_url": "https://github.com/nitai/ekta-samiti/releases/download/v1.0.28018680/EktaSamiti.apk"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val result = GitHubUpdateChecker.parseLatestReleaseJson(
+            jsonString = releaseJson,
+            currentVersionCode = 5,
+            currentVersionName = "1.0.5"
+        )
+        assertTrue(result is UpdateCheckResult.UpdateAvailable)
+        val info = (result as UpdateCheckResult.UpdateAvailable).release
+        assertEquals(
+            "https://github.com/nitai/ekta-samiti/releases/download/v1.0.28018680/EktaSamiti.apk",
+            info.downloadUrl
+        )
+    }
 }

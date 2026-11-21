@@ -1,5 +1,8 @@
 package com.example.data.repository
 
+import androidx.room.withTransaction
+import com.example.data.backup.SamitiBackupSerializer
+import com.example.data.backup.SamitiBackupSnapshot
 import com.example.data.cloud.CloudAutoSyncManager
 import com.example.data.local.AppDatabase
 import com.example.data.model.InstallmentPayment
@@ -527,6 +530,76 @@ class SamitiRepository(
                 append("রসিদ: ${i.receiptNumber} | সদস্য: ${i.memberName} | কিস্তি নং: ${i.installmentNumber} | পরিমাণ: ৳${i.paidAmount} | তারিখ: ${sdf.format(Date(i.paymentDate))} | সংগ্রাহক: ${i.collectedBy}\n")
             }
         }
+    }
+
+    suspend fun exportBackupSnapshot(): SamitiBackupSnapshot {
+        return SamitiBackupSnapshot(
+            exportedAtMillis = System.currentTimeMillis(),
+            members = memberDao.getAllMembersList(),
+            savingsTransactions = savingsDao.getAllTransactionsList(),
+            loans = loanDao.getAllLoansList(),
+            installmentPayments = installmentDao.getAllPaymentsList()
+        )
+    }
+
+    suspend fun exportBackupJsonString(): Pair<String, Int> {
+        val snapshot = exportBackupSnapshot()
+        return SamitiBackupSerializer.encode(snapshot) to snapshot.totalRecords
+    }
+
+    suspend fun restoreFromBackupSnapshot(snapshot: SamitiBackupSnapshot): Int {
+        database.withTransaction {
+            installmentDao.deleteAllPayments()
+            loanDao.deleteAllLoans()
+            savingsDao.deleteAllTransactions()
+            memberDao.deleteAllMembers()
+
+            val memberIdByOldId = mutableMapOf<Long, Long>()
+            val memberIdByCode = mutableMapOf<String, Long>()
+            snapshot.members.forEach { member ->
+                val newId = memberDao.insertMember(member.copy(id = 0L))
+                if (member.id > 0L) memberIdByOldId[member.id] = newId
+                if (member.memberCode.isNotBlank()) memberIdByCode[member.memberCode] = newId
+            }
+
+            val loanIdByOldId = mutableMapOf<Long, Long>()
+            val loanIdByCode = mutableMapOf<String, Long>()
+            snapshot.loans.forEach { loan ->
+                val resolvedMemberId = if (loan.memberId == 0L && loan.memberCode.startsWith("NM-")) {
+                    0L
+                } else {
+                    memberIdByCode[loan.memberCode] ?: memberIdByOldId[loan.memberId] ?: 0L
+                }
+                val newLoanId = loanDao.insertLoan(loan.copy(id = 0L, memberId = resolvedMemberId))
+                if (loan.id > 0L) loanIdByOldId[loan.id] = newLoanId
+                if (loan.memberCode.isNotBlank()) loanIdByCode[loan.memberCode] = newLoanId
+            }
+
+            snapshot.savingsTransactions.forEach { tx ->
+                val resolvedMemberId = memberIdByCode[tx.memberCode] ?: memberIdByOldId[tx.memberId] ?: 0L
+                savingsDao.insertTransaction(tx.copy(id = 0L, memberId = resolvedMemberId))
+            }
+
+            snapshot.installmentPayments.forEach { payment ->
+                val resolvedMemberId = if (payment.memberId == 0L && payment.memberCode.startsWith("NM-")) {
+                    0L
+                } else {
+                    memberIdByCode[payment.memberCode] ?: memberIdByOldId[payment.memberId] ?: 0L
+                }
+                val resolvedLoanId = loanIdByOldId[payment.loanId]
+                    ?: loanIdByCode[payment.memberCode]
+                    ?: 0L
+                installmentDao.insertPayment(
+                    payment.copy(
+                        id = 0L,
+                        loanId = resolvedLoanId,
+                        memberId = resolvedMemberId
+                    )
+                )
+            }
+        }
+        cloudAutoSyncManager?.triggerAutoSyncNow()
+        return snapshot.totalRecords
     }
 
     suspend fun clearAllSamitiData(role: UserRole): Boolean {

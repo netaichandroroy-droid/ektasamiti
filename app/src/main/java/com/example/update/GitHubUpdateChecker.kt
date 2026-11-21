@@ -91,20 +91,23 @@ object GitHubUpdateChecker {
             val htmlUrl = root.optString("html_url").trim()
 
             var apkDownloadUrl: String? = null
+            var fallbackApkUrl: String? = null
             val assets = root.optJSONArray("assets")
             if (assets != null) {
                 for (i in 0 until assets.length()) {
                     val asset = assets.optJSONObject(i) ?: continue
                     val assetName = asset.optString("name").lowercase()
                     val browserUrl = asset.optString("browser_download_url").trim()
-                    if (assetName.endsWith(".apk") && browserUrl.startsWith("https://")) {
+                    if (assetName == "ektasamiti.apk" && browserUrl.startsWith("https://")) {
                         apkDownloadUrl = browserUrl
                         break
+                    } else if (fallbackApkUrl == null && assetName.endsWith(".apk") && browserUrl.startsWith("https://")) {
+                        fallbackApkUrl = browserUrl
                     }
                 }
             }
 
-            val finalUrl = apkDownloadUrl ?: htmlUrl
+            val finalUrl = apkDownloadUrl ?: fallbackApkUrl ?: htmlUrl
             if (tagName.isBlank() || !finalUrl.startsWith("https://")) {
                 return UpdateCheckResult.Error("সঠিক রিলিজ ডাউনলোড লিংক পাওয়া যায়নি।")
             }
@@ -158,6 +161,12 @@ object GitHubUpdateChecker {
             .findAll(versionText)
             .mapNotNull { it.value.toIntOrNull() }
             .toList()
+    }
+
+    fun permanentApkDownloadUrl(repoInput: String): String {
+        val normalized = AppUpdatePreferences.normalizeGithubRepo(repoInput)
+        if (normalized.isBlank()) return ""
+        return "https://github.com/$normalized/releases/latest/download/EktaSamiti.apk"
     }
 
     fun openUpdateDownloadUrl(context: Context, url: String): Boolean {

@@ -62,26 +62,46 @@ jobs:
             echo "::warning::app/google-services.json missing — Google Sign-In and Cloud Sync will be disabled in this APK until GOOGLE_SERVICES_JSON secret is added."
           fi
 
+      - name: Compute monotonic release version
+        id: ver
+        run: |
+          EPOCH_NOW=$(date -u +%s)
+          MONOTONIC_CODE=$(( EPOCH_NOW - 1767225600 ))
+          RUN_NUM=${{ github.run_number }}
+          if [ "$RUN_NUM" -gt "$MONOTONIC_CODE" ]; then
+            MONOTONIC_CODE="$RUN_NUM"
+          fi
+          echo "code=$MONOTONIC_CODE" >> "$GITHUB_OUTPUT"
+          echo "name=1.0.$MONOTONIC_CODE" >> "$GITHUB_OUTPUT"
+
       - name: Build Debug APK
         env:
-          APP_VERSION_NAME: "1.0.${{ github.run_number }}"
-        run: gradle :app:assembleDebug --no-daemon -PappVersionCode=${{ github.run_number }} -PappVersionName="1.0.${{ github.run_number }}" -PgithubRepo="${{ github.repository }}"
+          APP_VERSION_NAME: "${{ steps.ver.outputs.name }}"
+        run: gradle :app:assembleDebug --no-daemon -PappVersionCode=${{ steps.ver.outputs.code }} -PappVersionName="${{ steps.ver.outputs.name }}" -PgithubRepo="${{ github.repository }}"
 
-      - name: Prepare Versioned APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk "EktaSamiti-v1.0.${{ github.run_number }}.apk"
+      - name: Prepare Permanent and Versioned APKs
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk "EktaSamiti.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "EktaSamiti-v${{ steps.ver.outputs.name }}.apk"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: EktaSamiti-APK
-          path: "EktaSamiti-v1.0.${{ github.run_number }}.apk"
+          path: |
+            EktaSamiti.apk
+            EktaSamiti-v${{ steps.ver.outputs.name }}.apk
           if-no-files-found: error
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "v1.0.${{ github.run_number }}"
-          name: "Ekta Samiti v1.0.${{ github.run_number }}"
-          body: "Automated APK build from push (${{ github.sha }}). Version Code: ${{ github.run_number }}."
-          files: "EktaSamiti-v1.0.${{ github.run_number }}.apk"
+          tag_name: "v${{ steps.ver.outputs.name }}"
+          name: "Ekta Samiti v${{ steps.ver.outputs.name }}"
+          body: |
+            Automated APK build from push (${{ github.sha }}). Version Code: ${{ steps.ver.outputs.code }}.
+            Permanent Direct APK Link (never changes): https://github.com/${{ github.repository }}/releases/latest/download/EktaSamiti.apk
+          files: |
+            EktaSamiti.apk
+            EktaSamiti-v${{ steps.ver.outputs.name }}.apk
           make_latest: true

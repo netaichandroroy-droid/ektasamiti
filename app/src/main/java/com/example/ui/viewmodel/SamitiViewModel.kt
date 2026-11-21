@@ -2,6 +2,8 @@ package com.example.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.backup.SamitiBackupSerializer
+import com.example.data.backup.SamitiBackupSnapshot
 import com.example.data.cloud.CloudAutoSyncManager
 import com.example.data.cloud.CloudSyncState
 import com.example.data.model.InstallmentPayment
@@ -778,6 +780,43 @@ class SamitiViewModel(
 
     fun clearBackupData() {
         _backupData.value = null
+    }
+
+    suspend fun buildJsonBackupPayload(): Pair<String, Int> {
+        return repository.exportBackupJsonString()
+    }
+
+    fun parseBackupJson(rawJson: String): Result<SamitiBackupSnapshot> {
+        return SamitiBackupSerializer.decode(rawJson)
+    }
+
+    fun restoreFromBackupSnapshot(
+        snapshot: SamitiBackupSnapshot,
+        sourceLabel: String = "Google Drive",
+        onComplete: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                val restoredCount = repository.restoreFromBackupSnapshot(snapshot)
+                val msg = "$sourceLabel থেকে $restoredCount টি রেকর্ড সফলভাবে রিস্টোর হয়েছে"
+                _snackbarMessage.value = msg
+                _activeSuccessPopup.value = SuccessPopupData(
+                    title = "ব্যাকআপ রিস্টোর সফল!",
+                    message = "$sourceLabel থেকে সমিতির সকল তথ্য সফলভাবে পুনরুদ্ধার করা হয়েছে।",
+                    details = listOf(
+                        "সদস্য" to "${snapshot.members.size} জন",
+                        "সঞ্চয় লেনদেন" to "${snapshot.savingsTransactions.size} টি",
+                        "ঋণ রেকর্ড" to "${snapshot.loans.size} টি",
+                        "কিস্তি আদায়" to "${snapshot.installmentPayments.size} টি"
+                    )
+                )
+                onComplete(true, msg)
+            } catch (e: Exception) {
+                val err = "ডাটা রিস্টোর করা যায়নি: ${e.localizedMessage ?: "অজানা ত্রুটি"}"
+                _snackbarMessage.value = err
+                onComplete(false, err)
+            }
+        }
     }
 
     // Calculations for today's summary
