@@ -760,7 +760,7 @@ fun SettingsScreen(
                     iconBg = Color(0xFFFEF3C7),
                     iconTint = Color(0xFFD97706),
                     title = if (isCheckingUpdate) "আপডেট যাচাই হচ্ছে..." else "এখনই আপডেট চেক করুন",
-                    subtitle = "বর্তমান: v${BuildConfig.VERSION_NAME} (বিল্ড ${BuildConfig.VERSION_CODE})",
+                    subtitle = "বর্তমান: v${BuildConfig.VERSION_NAME} (বিল্ড ${BuildConfig.VERSION_CODE}) • পুশের ২-৪ মিনিট পর পাওয়া যায়",
                     onClick = {
                         if (!isCheckingUpdate) {
                             isCheckingUpdate = true

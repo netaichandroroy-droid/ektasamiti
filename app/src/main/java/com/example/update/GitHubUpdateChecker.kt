@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -49,23 +50,25 @@ object GitHubUpdateChecker {
             val request = Request.Builder()
                 .url(apiUrl)
                 .header("Accept", "application/vnd.github+json")
+                .header("Cache-Control", "no-cache")
+                .header("Pragma", "no-cache")
                 .header("User-Agent", "EktaSamitiAndroid/${BuildConfig.VERSION_NAME}")
                 .build()
 
-            httpClient.newCall(request).execute().use { response ->
+            val latestResult = httpClient.newCall(request).execute().use { response ->
                 if (response.code == 404) {
-                    return@withContext UpdateCheckResult.Error(
+                    return@use UpdateCheckResult.Error(
                         "রিপোজিটরিতে এখনো কোনো GitHub Release পাওয়া যায়নি ($repo)।"
                     )
                 }
                 if (!response.isSuccessful) {
-                    return@withContext UpdateCheckResult.Error(
+                    return@use UpdateCheckResult.Error(
                         "GitHub আপডেট যাচাই করা যায়নি (HTTP ${response.code})।"
                     )
                 }
                 val bodyString = response.body?.string().orEmpty()
                 if (bodyString.isBlank()) {
-                    return@withContext UpdateCheckResult.Error("সার্ভার থেকে খালি উত্তর এসেছে।")
+                    return@use UpdateCheckResult.Error("সার্ভার থেকে খালি উত্তর এসেছে।")
                 }
                 parseLatestReleaseJson(
                     jsonString = bodyString,
@@ -73,6 +76,40 @@ object GitHubUpdateChecker {
                     currentVersionName = BuildConfig.VERSION_NAME
                 )
             }
+
+            if (latestResult is UpdateCheckResult.UpdateAvailable) {
+                return@withContext latestResult
+            }
+
+            // Fallback check against recent releases list in case GitHub /releases/latest cache lags
+            val listUrl = "https://api.github.com/repos/$repo/releases?per_page=5"
+            val listRequest = Request.Builder()
+                .url(listUrl)
+                .header("Accept", "application/vnd.github+json")
+                .header("Cache-Control", "no-cache")
+                .header("Pragma", "no-cache")
+                .header("User-Agent", "EktaSamitiAndroid/${BuildConfig.VERSION_NAME}")
+                .build()
+            val listFallback = runCatching {
+                httpClient.newCall(listRequest).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val listBody = resp.body?.string().orEmpty()
+                        if (listBody.isNotBlank()) {
+                            parseReleasesListJson(
+                                jsonArrayString = listBody,
+                                currentVersionCode = BuildConfig.VERSION_CODE,
+                                currentVersionName = BuildConfig.VERSION_NAME
+                            )
+                        } else null
+                    } else null
+                }
+            }.getOrNull()
+
+            if (listFallback is UpdateCheckResult.UpdateAvailable) {
+                return@withContext listFallback
+            }
+
+            latestResult
         } catch (e: Exception) {
             UpdateCheckResult.Error("ইন্টারনেট সংযোগ না থাকায় আপডেট চেক করা যায়নি।")
         }
@@ -131,6 +168,49 @@ object GitHubUpdateChecker {
         } catch (_: Exception) {
             UpdateCheckResult.Error("রিলিজ তথ্য পড়তে সমস্যা হয়েছে।")
         }
+    }
+
+    fun parseReleasesListJson(
+        jsonArrayString: String,
+        currentVersionCode: Int,
+        currentVersionName: String
+    ): UpdateCheckResult? {
+        return try {
+            val releases = JSONArray(jsonArrayString)
+            var bestCandidate: GitHubReleaseInfo? = null
+            for (i in 0 until releases.length()) {
+                val item = releases.optJSONObject(i) ?: continue
+                if (item.optBoolean("draft", false) || item.optBoolean("prerelease", false)) {
+                    continue
+                }
+                val parsed = parseLatestReleaseJson(
+                    jsonString = item.toString(),
+                    currentVersionCode = currentVersionCode,
+                    currentVersionName = currentVersionName
+                )
+                if (parsed is UpdateCheckResult.UpdateAvailable) {
+                    val existing = bestCandidate
+                    if (existing == null || compareVersionTags(parsed.release.tagName, existing.tagName) > 0) {
+                        bestCandidate = parsed.release
+                    }
+                }
+            }
+            bestCandidate?.let { UpdateCheckResult.UpdateAvailable(it) }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun compareVersionTags(tagA: String, tagB: String): Int {
+        val partsA = extractNumericParts(tagA)
+        val partsB = extractNumericParts(tagB)
+        val maxLen = maxOf(partsA.size, partsB.size)
+        for (i in 0 until maxLen) {
+            val a = partsA.getOrElse(i) { 0 }
+            val b = partsB.getOrElse(i) { 0 }
+            if (a != b) return a.compareTo(b)
+        }
+        return 0
     }
 
     fun isNewerRelease(

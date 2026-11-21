@@ -160,4 +160,51 @@ class GitHubUpdateCheckerTest {
             info.downloadUrl
         )
     }
+
+    @Test
+    fun parseReleasesListJson_picksHighestPublishedReleaseIgnoringDrafts() {
+        val listJson = """
+            [
+              {
+                "tag_name": "v1.0.99999",
+                "draft": true,
+                "prerelease": false,
+                "html_url": "https://github.com/nitai/ekta-samiti/releases/tag/v1.0.99999",
+                "assets": []
+              },
+              {
+                "tag_name": "v1.0.5",
+                "draft": false,
+                "prerelease": false,
+                "html_url": "https://github.com/nitai/ekta-samiti/releases/tag/v1.0.5",
+                "assets": [
+                  {
+                    "name": "EktaSamiti.apk",
+                    "browser_download_url": "https://github.com/nitai/ekta-samiti/releases/download/v1.0.5/EktaSamiti.apk"
+                  }
+                ]
+              },
+              {
+                "tag_name": "v1.0.9117000",
+                "draft": false,
+                "prerelease": false,
+                "html_url": "https://github.com/nitai/ekta-samiti/releases/tag/v1.0.9117000",
+                "assets": [
+                  {
+                    "name": "EktaSamiti.apk",
+                    "browser_download_url": "https://github.com/nitai/ekta-samiti/releases/download/v1.0.9117000/EktaSamiti.apk"
+                  }
+                ]
+              }
+            ]
+        """.trimIndent()
+
+        val result = GitHubUpdateChecker.parseReleasesListJson(
+            jsonArrayString = listJson,
+            currentVersionCode = 5,
+            currentVersionName = "1.0.5"
+        )
+        assertTrue(result is UpdateCheckResult.UpdateAvailable)
+        assertEquals("v1.0.9117000", (result as UpdateCheckResult.UpdateAvailable).release.tagName)
+    }
 }
